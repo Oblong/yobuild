@@ -49,6 +49,15 @@ To try out your new recipe, just run it, e.g. ./xz.recipe
 To submit your recipe for inclusion in upstream yobuild, do a pull request on github,
 or email dank@kegel.com.
 
+If you have a Mac, please test your recipe first with
+
+```
+YB_WIDTH=universal recipes/FOO/FOO.recipe
+```
+
+If that fails to build, try adding the --lipo option to yb_default.
+
+
 ## bugs
 
 Submit bug reports via the github issue tracker, or by email to dank@kegel.com.
