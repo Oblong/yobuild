@@ -15,6 +15,54 @@ bs_abort() {
     exit 1
 }
 
+# Some projects live only in git, and github blacklists you if
+# you clone too often, so clone and save a tarball to the lan cache.
+
+# do_download_git repo commit [what-to-name-directory]
+do_download_git() {
+    _repo=$1
+    _commit=$2
+    _repodir=$3
+
+    if ! test "$YB_BUILDDIR"
+    then
+        bs_abort "You must set YB_BUILDDIR before calling yb_download"
+    fi
+    mkdir -p "$YB_BUILDDIR"
+    if ! test $_repodir
+    then
+        _repodir=`basename $_repo .git`
+    fi
+    DIRNAME=$_repodir
+
+    (
+    cd "$YB_BUILDDIR"
+
+    file=$_repodir.tar.gz
+
+    # First try to get it from our cache
+    if ! test -f "$YB_DOWNLOADS/$file"
+    then
+        if ! wget -P "$YB_DOWNLOADS" $YB_LANCACHE/$file
+        then
+            echo "Download from cache failed with $?, trying upstream"
+
+            git clone $_repo $_repodir
+            cd $_repodir
+            git reset --hard $_commit
+            cd ..
+
+            tar -czvf $file $_repodir
+            mkdir -p "$YB_DOWNLOADS"
+            cp $file "$YB_DOWNLOADS/$file"
+            rm -rf $file $_repodir
+            echo "To keep yourself from being blacklisted by the git server, copy $YB_DOWNLOADS/$file to $LANCACHE now"
+        fi
+    fi
+    tar -xzvf "$YB_DOWNLOADS/$file"
+    )
+}
+
 # Download a file.  If it's a tarball or zipfile, unpack it, too.
 # Usage:
 # do_download url [sha256sum [what-to-name-directory]]
@@ -22,6 +70,12 @@ do_download() {
     url=$1
     sha256=$2
     rename="$3"
+
+    if ! test "$YB_BUILDDIR"
+    then
+        bs_abort "You must set YB_BUILDDIR before calling yb_download"
+    fi
+
     mkdir -p "$YB_BUILDDIR"
     file=`echo $url | sed 's,.*/,,'`
 
@@ -33,6 +87,7 @@ do_download() {
         if ! wget -P "$YB_DOWNLOADS" $YB_LANCACHE/$file
         then
             echo "Download from cache failed with $?, trying upstream"
+            mkdir -p "$YB_DOWNLOADS"
             if ! wget -P "$YB_DOWNLOADS" $url
             then
                 echo "Download from upstream failed, retrying with delay"
@@ -66,6 +121,15 @@ do_download() {
     *.tar.zip) gzcat "$YB_DOWNLOADS/$file" | tar -C "$YB_BUILDDIR" -xf -;;   # FIXME: doesn't abort with bsdtar if file invalid
     *.zip) unzip -o "$YB_DOWNLOADS/$file" -d "$YB_BUILDDIR";;
     *.patch) ;;
+    *.7z)
+        # we're stuck with windows 7z on one machine
+        case `which 7z` in
+        *cygdrive*)
+            YB_DOWNLOADSW=`cygpath -w $YB_DOWNLOADS`
+            7z x -o"$YB_BUILDDIRW" "$YB_DOWNLOADSW\\$file";;
+        *)
+            7z x -o"$YB_BUILDDIR" "$YB_DOWNLOADS/$file";;
+        esac;;
     *) echo "what is a $file"; exit 1;;
     esac
 
@@ -89,15 +153,10 @@ fi
 YB_DOWNLOADS="${YB_DOWNLOADS:-$XDG_CACHE_HOME/yobuild}"
 YB_LANCACHE=${YB_LANCACHE:-http://yobuild/mirror}
 
-if ! test "$YB_BUILDDIR"
-then
-    bs_abort "You must set YB_BUILDDIR before calling yb_download"
-fi
-
 usage() {
     set +x
     cat << _EOF_
-Download and unpack a source package into $$YB_BUILDDIR
+Download and unpack a source package into \$YB_BUILDDIR
 Usage: $0 url [sha256sum [NEWNAME]]
 
 url must be the location of a .tgz, .tar.gz, .tar.bz2, .tar.xz, .tar.zip, .zip, or .patch file
@@ -121,6 +180,8 @@ case $1 in
     usage; exit 0;;
 ""|-*)
     usage; exit 1;;
+*.git)
+    do_download_git $1 $2 $3;;
 *)
-    do_download $1 $2 $3
+    do_download $1 $2 $3;;
 esac

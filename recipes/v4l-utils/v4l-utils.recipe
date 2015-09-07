@@ -1,0 +1,4 @@
+
+
+export YB_CONFIGURE_ARGS="--disable-static --disable-libdvbv5 --disable-qv4l2"
+yb_default --lipo v4l-utils http://www.linuxtv.org/downloads/v4l-utils/v4l-utils-1.6.2.tar.bz2 d3d6eb1f0204fb11f3d318bfca35d5f73cc077f88fac7665a47856a16496be7d

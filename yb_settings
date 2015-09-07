@@ -30,3 +30,97 @@ DESTDIR=`cd $DESTDIR; pwd`
 
 mkdir -p $YB_OUTDIR
 YB_OUTDIR=`cd $YB_OUTDIR; pwd`
+
+yb_is_win() {
+    test -d /cygdrive/c/windows
+}
+
+if yb_is_win
+then
+  # Caution: cygpath may turn spaces into newlines, see kludge in winetricks?!
+  PREFIXW=`cygpath -w $PREFIX`
+  export PREFIXW
+  YB_BUILDDIRW=`cygpath -w $YB_BUILDDIR`
+  export YB_BUILDDIRW
+fi
+
+yb_abort() {
+    echo error: $@
+    exit 1
+}
+
+# If you didn't start cygwin from inside a visual studio 2010 command shell,
+# use this function to more or less do the same thing.  Fragile.
+yb_msvc2010_defaults() {
+    echo "Warning: No Visual C++ environment variables found, so making some up."
+    echo "Please start cygwin from a Visual Studio Command Prompt instead."
+    # Extracted by diffing environment between a cygwin shell started from
+    # visual studio 2010 command prompt and a normal cygwin shell.
+    export DevEnvDir='C:\Program Files (x86)\Microsoft Visual Studio 10.0\Common7\IDE'
+    # vs2010 uses .net internally
+    export Framework35Version=v3.5
+    export FrameworkDir=C:\Windows\Microsoft.NET\Framework\
+    export FrameworkDIR32=C:\Windows\Microsoft.NET\Framework\
+    export FrameworkVersion=v4.0.30319
+    export FrameworkVersion32=v4.0.30319
+    # boost needs these
+    export INCLUDE='C:\Program Files (x86)\Microsoft Visual Studio 10.0\VC\INCLUDE;C:\Program Files (x86)\Microsoft Visual Studio 10.0\VC\ATLMFC\INCLUDE;C:\Program Files (x86)\Microsoft SDKs\Windows\v7.0A\include;'
+    export LIB='C:\Program Files (x86)\Microsoft Visual Studio 10.0\VC\LIB;C:\Program Files (x86)\Microsoft Visual Studio 10.0\VC\ATLMFC\LIB;C:\Program Files (x86)\Microsoft SDKs\Windows\v7.0A\lib;'
+    export LIBPATH='C:\Windows\Microsoft.NET\Framework\v4.0.30319;C:\Windows\Microsoft.NET\Framework\v3.5;C:\Program Files (x86)\Microsoft Visual Studio 10.0\VC\LIB;C:\Program Files (x86)\Microsoft Visual Studio 10.0\VC\ATLMFC\LIB;'
+
+    export PATH='/cygdrive/c/Program Files (x86)/Microsoft Visual Studio 10.0/VSTSDB/Deploy:/cygdrive/c/Program Files (x86)/Microsoft Visual Studio 10.0/Common7/IDE:/cygdrive/c/Program Files (x86)/Microsoft Visual Studio 10.0/VC/BIN:/cygdrive/c/Program Files (x86)/Microsoft Visual Studio 10.0/Common7/Tools:/cygdrive/c/Windows/Microsoft.NET/Framework/v4.0.30319:/cygdrive/c/Windows/Microsoft.NET/Framework/v3.5:/cygdrive/c/Program Files (x86)/Microsoft Visual Studio 10.0/VC/VCPackages:/cygdrive/c/Program Files (x86)/HTML Help Workshop:/cygdrive/c/Program Files (x86)/Microsoft Visual Studio 10.0/Team Tools/Performance Tools:/cygdrive/c/Program Files (x86)/Microsoft SDKs/Windows/v7.0A/bin/NETFX 4.0 Tools:/cygdrive/c/Program Files (x86)/Microsoft SDKs/Windows/v7.0A/bin:/cygdrive/c/Program Files (x86)/Microsoft DirectX SDK (August 2006)/Utilities/Bin/x86:'$PATH
+    export VCINSTALLDIR='C:\Program Files (x86)\Microsoft Visual Studio 10.0\VC\'
+    export VSINSTALLDIR='C:\Program Files (x86)\Microsoft Visual Studio 10.0\'
+    export WindowsSdkDir='C:\Program Files (x86)\Microsoft SDKs\Windows\v7.0A\'
+}
+
+yb_msvc2013_defaults() {
+    echo "Warning: No Visual C++ environment variables found, so making some up."
+    echo "Please start cygwin from a Visual Studio Command Prompt instead."
+    # Extracted by diffing environment between a cygwin shell started from
+    # visual studio 2013 command prompt and a normal cygwin shell.
+    export DevEnvDir='C:\Program Files (x86)\Microsoft Visual Studio 12.0\Common7\IDE\'
+    export ExtensionSdkDir='C:\Program Files (x86)\Microsoft SDKs\Windows\v8.1\ExtensionSDKs'
+    export Framework40Version='v4.0'
+    export FrameworkDir='C:\Windows\Microsoft.NET\Framework\'
+    export FrameworkDIR32='C:\Windows\Microsoft.NET\Framework\'
+    export FrameworkVersion='v4.0.30319'
+    export FrameworkVersion32='v4.0.30319'
+    # boost needs these
+    export INCLUDE='C:\Program Files (x86)\Microsoft Visual Studio 12.0\VC\INCLUDE;C:\Program Files (x86)\Windows Kits\8.1\include\shared;C:\Program Files (x86)\Windows Kits\8.1\include\um;C:\Program Files (x86)\Windows Kits\8.1\include\winrt;'
+    export LIB='C:\Program Files (x86)\Microsoft Visual Studio 12.0\VC\LIB;C:\Program Files (x86)\Windows Kits\8.1\lib\winv6.3\um\x86;'
+    export LIBPATH='C:\Windows\Microsoft.NET\Framework\v4.0.30319;C:\Program Files (x86)\Microsoft Visual Studio 12.0\VC\LIB;C:\Program Files (x86)\Windows Kits\8.1\References\CommonConfiguration\Neutral;C:\Program Files (x86)\Microsoft SDKs\Windows\v8.1\ExtensionSDKs\Microsoft.VCLibs\12.0\References\CommonConfiguration\neutral;'
+
+    export PATH='/cygdrive/c/Program Files (x86)/Microsoft Visual Studio 12.0/Common7/IDE/CommonExtensions/Microsoft/TestWindow:/cygdrive/c/Program Files (x86)/MSBuild/12.0/bin:/cygdrive/c/Program Files (x86)/Microsoft Visual Studio 12.0/Common7/IDE:/cygdrive/c/Program Files (x86)/Microsoft Visual Studio 12.0/VC/BIN:/cygdrive/c/Program Files (x86)/Microsoft Visual Studio 12.0/Common7/Tools:/cygdrive/c/Windows/Microsoft.NET/Framework/v4.0.30319:/cygdrive/c/Program Files (x86)/Microsoft Visual Studio 12.0/VC/VCPackages:/cygdrive/c/Program Files (x86)/Microsoft Visual Studio 12.0/Team Tools/Performance Tools:/cygdrive/c/Program Files (x86)/Windows Kits/8.1/bin/x86:/cygdrive/c/Program Files (x86)/Microsoft SDKs/Windows/v8.1A/bin/NETFX 4.5.1 Tools:'$PATH
+
+    export VCINSTALLDIR='C:\Program Files (x86)\Microsoft Visual Studio 12.0\VC\'
+    export VisualStudioVersion='12.0'
+    export VSINSTALLDIR='C:\Program Files (x86)\Microsoft Visual Studio 12.0\'
+    export WindowsSDK_ExecutablePath_x64='C:\Program Files (x86)\Microsoft SDKs\Windows\v8.1A\bin\NETFX 4.5.1 Tools\x64\'
+    export WindowsSDK_ExecutablePath_x86='C:\Program Files (x86)\Microsoft SDKs\Windows\v8.1A\bin\NETFX 4.5.1 Tools\'
+    export WindowsSdkDir='C:\Program Files (x86)\Windows Kits\8.1\'
+}
+
+# Make sure environment variables are already set for Visual C++,
+# or failing that, make a good guess.
+yb_vcvars32() {
+    case $PATH in
+    *"Visual Studio 10"*)
+        export YB_COMPILERNAME=msvc2010;;
+    *"Visual Studio 12"*)
+        export YB_COMPILERNAME=msvc2013;;
+    *Visual*)
+        yb_abort "Unknown version of visual C++ on path";;
+    *)
+        case "$YB_COMPILERNAME" in
+        msvc2010) yb_msvc2010_defaults;;
+        msvc2013) yb_msvc2013_defaults;;
+        *) yb_abort "unknown YB_COMPILERNAME $YB_COMPILERNAME";;
+        esac
+        ;;
+    esac
+    if ! yes | cl /help
+    then
+        yb_abort "Cannot run visual c++"
+    fi
+}

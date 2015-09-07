@@ -1,0 +1,106 @@
+From 916791a74cffdae848b3a687f4fa1af01d7decf5 Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?Aleix=20Conchillo=20Flaqu=C3=A9?= <aleix@oblong.com>
+Date: Wed, 13 Aug 2014 13:56:33 +0200
+Subject: [PATCH] qtdemux: update base time properly for non-flushing seeks
+
+We update the stream segment base time with the running time of the last
+segment position.
+
+Also, when preparing the current sample make sure we haven't reached the
+end of the segment, otherwise the stream is EOS.
+
+https://bugzilla.gnome.org/show_bug.cgi?id=734659
+---
+ gst/isomp4/qtdemux.c |   30 ++++++++++++++++++------------
+ gst/isomp4/qtdemux.h |    3 ---
+ 2 files changed, 18 insertions(+), 15 deletions(-)
+
+diff --git a/gst/isomp4/qtdemux.c b/gst/isomp4/qtdemux.c
+index f2ea73b..7b2c12a 100644
+--- a/gst/isomp4/qtdemux.c
++++ b/gst/isomp4/qtdemux.c
+@@ -1405,7 +1405,6 @@ gst_qtdemux_perform_seek (GstQTDemux * qtdemux, GstSegment * segment,
+   }
+   segment->position = desired_offset;
+   segment->time = desired_offset;
+-  qtdemux->segment_base = desired_offset;
+ 
+   /* we stop at the end */
+   if (segment->stop == -1)
+@@ -1853,7 +1852,6 @@ gst_qtdemux_reset (GstQTDemux * qtdemux, gboolean hard)
+   qtdemux->offset = 0;
+   gst_adapter_clear (qtdemux->adapter);
+   gst_segment_init (&qtdemux->segment, GST_FORMAT_TIME);
+-  qtdemux->segment_base = 0;
+ 
+   if (hard) {
+     for (n = 0; n < qtdemux->n_streams; n++) {
+@@ -3475,26 +3473,27 @@ gst_qtdemux_activate_segment (GstQTDemux * qtdemux, QtDemuxStream * stream,
+     stop = MIN (segment->media_start + seg_time, stop);
+   }
+ 
+-  GST_DEBUG_OBJECT (qtdemux, "newsegment %d from %" GST_TIME_FORMAT
+-      " to %" GST_TIME_FORMAT ", time %" GST_TIME_FORMAT, seg_idx,
+-      GST_TIME_ARGS (start), GST_TIME_ARGS (stop), GST_TIME_ARGS (time));
+-
+   /* combine global rate with that of the segment */
+   rate = segment->rate * qtdemux->segment.rate;
+ 
+   /* update the segment values used for clipping */
+   /* accumulate previous segments */
+-  if (GST_CLOCK_TIME_IS_VALID (stream->segment.stop))
+-    stream->segment.base += (stream->segment.stop - stream->segment.start) /
+-        ABS (stream->segment.rate);
++  if (stream->segment.position > stream->segment.stop)
++    stream->segment.position = stream->segment.stop;
++  stream->segment.base =
++      gst_segment_to_running_time (&stream->segment, GST_FORMAT_TIME,
++      stream->segment.position);
+   stream->segment.rate = rate;
+   stream->segment.start = start;
+   stream->segment.stop = stop;
+   stream->segment.time = time;
+   stream->segment.position = start;
+-  stream->segment.base =
+-      segment->time >
+-      qtdemux->segment_base ? segment->time - qtdemux->segment_base : 0;
++
++  GST_DEBUG_OBJECT (qtdemux, "newsegment %d from %" GST_TIME_FORMAT
++      " to %" GST_TIME_FORMAT ", time %" GST_TIME_FORMAT
++      ", base %" GST_TIME_FORMAT, seg_idx, GST_TIME_ARGS (start),
++      GST_TIME_ARGS (stop), GST_TIME_ARGS (time),
++      GST_TIME_ARGS (stream->segment.base));
+ 
+   /* now prepare and send the segment */
+   if (stream->pad) {
+@@ -3641,6 +3640,13 @@ gst_qtdemux_prepare_current_sample (GstQTDemux * qtdemux,
+   if (G_UNLIKELY (stream->sample_index >= stream->n_samples))
+     goto eos;
+ 
++  if (G_UNLIKELY (stream->segment.stop != -1
++          && ((stream->segment.rate >= 0
++                  && stream->segment.stop <= stream->segment.position)
++              || (stream->segment.rate < 0
++                  && stream->segment.start > stream->segment.position))))
++    goto eos;
++
+   if (!qtdemux_parse_samples (qtdemux, stream, stream->sample_index)) {
+     GST_LOG_OBJECT (qtdemux, "Parsing of index %u failed!",
+         stream->sample_index);
+diff --git a/gst/isomp4/qtdemux.h b/gst/isomp4/qtdemux.h
+index 47c8202..3a10d9c 100644
+--- a/gst/isomp4/qtdemux.h
++++ b/gst/isomp4/qtdemux.h
+@@ -124,9 +124,6 @@ struct _GstQTDemux {
+   gint64 seek_offset;
+   gint64 push_seek_start;
+   gint64 push_seek_stop;
+-  guint64 segment_base; /* The offset from which playback was started, needs to
+-                         * be subtracted from GstSegment.base to get a correct
+-                         * running time whenever a new QtSegment is activated */
+ 
+ #if 0
+   /* gst index support */
+-- 
+1.7.9.5
+

@@ -1,0 +1,60 @@
+. yb_settings
+set -e
+set -x
+
+yb_vcvars32
+
+# Convert a Visual Studio 2008 or earlier project to Visual Studio 2010
+do_convert_project() {
+  devenv /upgrade $1
+
+  # Only needed for strange projects like im's configure that don't have default build?
+  if false && ! grep Build.0 $1
+  then
+    # Turn on Release|Win32 version
+    # Finds line like
+    #		{D2A8E3B2-ED53-4E72-7DFC-2CDEAC936B7A}.Release|Win32.ActiveCfg = Release|Win32
+    # and adds a line like
+    #		{D2A8E3B2-ED53-4E72-7DFC-2CDEAC936B7A}.Release|Win32.Build.0 = Release|Win32
+    # after it.
+
+    cp $1 $1.old
+    sed 's,\(.*\}.Release.Win32\).ActiveCfg = Release.Win32,&\
+\1.Build.0 = Release|Win32,' < $1.old > $1
+  fi
+
+  return 0
+}
+
+rm -rf ${YB_BUILDDIR}
+mkdir -p ${YB_BUILDDIR}
+mkdir -p "$DESTDIR$PREFIX/bin"
+mkdir -p "$DESTDIR$PREFIX/lib"
+mkdir -p "$DESTDIR$PREFIX/include"
+
+yb_download http://pyyaml.org/download/libyaml/yaml-0.1.6.tar.gz 7da6971b4bd08a986dd2a61353bc422362bd0edcc67d7ebaac68c95f74182749
+pwd
+ls ${YB_BUILDDIR}
+cd ${YB_BUILDDIR}/yaml-0.1.6/win32/vs2008
+do_convert_project libyaml.sln
+
+# Inflict the Boost library naming convention on this library
+# No suffix means release build
+
+# Build only one project at a time to work around bug where devenv aborts with error FTK1011
+# Happily, we only need one project.
+devenv libyaml.sln /Build "Release|Win32" /project yamldll /out release.log
+
+# -d suffix means 'built with debug version of the c/c++ system libraries'
+sed -i -e 's/<OutputFile>$(OutDir)yaml.dll/<OutputFile>$(OutDir)yaml-d.dll/' yamldll.vcxproj
+devenv libyaml.sln /Build "Debug|Win32" /project yamldll /out debug.log
+
+# We don't ship static yaml libraries (yet)
+# dlls go in bin because they have to be on PATH
+cp Output/Debug/lib/DLL/yaml-d.dll   $DESTDIR$PREFIX/bin/yaml-d.dll
+cp Output/Debug/lib/DLL/yaml.lib     $DESTDIR$PREFIX/lib/yaml-d.lib
+cp Output/Release/lib/DLL/yaml.dll $DESTDIR$PREFIX/bin/yaml.dll
+cp Output/Release/lib/DLL/yaml.lib $DESTDIR$PREFIX/lib/yaml.lib
+cp ../../include/yaml.h $DESTDIR$PREFIX/include
+
+yb_package yaml

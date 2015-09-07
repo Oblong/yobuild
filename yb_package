@@ -2,7 +2,7 @@
 # Copyright 2014 Oblong, Inc
 # License: MIT
 #
-# Create tarball $YB_OUTDIR/$$name.tar.gz with the contents of $DESTDIR, ready for unpacking on target system.
+# Create tarball $YB_OUTDIR/$name.tar.gz with the contents of $DESTDIR, ready for unpacking on target system.
 
 set -e
 set -x
@@ -21,6 +21,10 @@ YB_OUTDIR=${YB_OUTDIR:-../outdir}
 
 is_ubuntu() {
     test -f /etc/issue
+}
+
+is_win() {
+    test -d /cygdrive/c/windows
 }
 
 do_fixups() {
@@ -56,7 +60,7 @@ do_package() {
     fi
     MAKETAR=`mktemp -t maketar.sh.XXXXXXXXXX`
     echo "cd $DESTDIR; chown -R root:$group $prefix; tar -czvf $tarball $YB_TAR_ARGS $prefix" > $MAKETAR
-    if test $FAKEROOTKEY
+    if test $FAKEROOTKEY || is_win
     then
         # nested fakeroot not needed, which is good, since it currently doesn't work
         sh $MAKETAR
@@ -71,7 +75,7 @@ usage() {
     set +x
     cat << _EOF_
 Usage: $0 name
-Creates tarball $YB_OUTDIR/$$name.tar.gz with the contents of $DESTDIR, ready for unpacking on target system.
+Creates tarball $YB_OUTDIR/\$name.tar.gz with the contents of $DESTDIR, ready for unpacking on target system.
 (And then unpack it on the build system?!  FIXME: stop doing that once dependencies are working!)
 
 Environment variables which may be overridden:

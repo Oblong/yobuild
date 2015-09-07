@@ -17,6 +17,12 @@ fi
 
 do_patch() {
     RECIPE=$1
+
+    # Mac OS X only has one second time resolution.
+    # Sleep here so patched files are definitely later than originals.
+    # This avoids trouble when e.g. patching configure rather than configure.ac.
+    sleep 2
+
     if test -d "$RECIPES"/$RECIPE/patches
     then
         for p in "$RECIPES"/$RECIPE/patches/*.patch

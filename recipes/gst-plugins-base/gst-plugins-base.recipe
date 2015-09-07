@@ -12,5 +12,5 @@
 # and mixing system pango with homebrew glib sounds dangerous.
 # Disable examples because they use system gtk/qt, which doesn't link properly against yobuild glib (which is too new)
 
-YB_CONFIGURE_ARGS="--disable-static --disable-gtk-doc --disable-examples --disable-pango" \
-    yb_default gst-plugins-base http://gstreamer.freedesktop.org/src/gst-plugins-base/gst-plugins-base-1.2.2.tar.xz fa90cf21eac0a77f9393100356aef99ae42072c31dc218d3ae2e7f86cd5ced69
+export YB_CONFIGURE_ARGS="--disable-static --disable-gtk-doc --disable-examples --disable-pango"
+yb_default gst-plugins-base http://gstreamer.freedesktop.org/src/gst-plugins-base/gst-plugins-base-1.4.5.tar.xz 77bd8199e7a312d3d71de9b7ddf761a3b78560a2c2a80829d0815ca39cbd551d

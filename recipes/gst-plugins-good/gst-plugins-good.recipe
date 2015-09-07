@@ -4,5 +4,21 @@
 # system with nonsystem is bad.
 # Disable examples because they use system gtk/qt, which doesn't link properly against yobuild glib (which is too new)
 
-YB_CONFIGURE_ARGS="--disable-static --disable-gtk-doc --disable-examples --disable-cairo" \
-    yb_default --lipo gst-plugins-good http://gstreamer.freedesktop.org/src/gst-plugins-good/gst-plugins-good-1.2.2.tar.xz 6c090f00e8e4588f12807bd9fbb06a03b84a512c93e84d928123ee4a42228a81
+. yb_settings
+
+is_linux() {
+    test -f /etc/issue
+}
+
+if is_linux
+then
+    # libvpx is built static by default, but gst-plugin-good's configure
+    # script doesn't pass --static to pkg-config, and fails to link because
+    # it can't find pthreads.  Works find on mac without this.
+    # Alternately we could change libvpx.recipe to pass --enable-dynamic,
+    # but that requires ELF, and mac does not use ELF.  Pffffft.
+    export VPX_CFLAGS="-I$PREFIX/include -pthread"
+fi
+
+export YB_CONFIGURE_ARGS="--disable-static --disable-gtk-doc --disable-examples --disable-cairo"
+yb_default --lipo gst-plugins-good http://gstreamer.freedesktop.org/src/gst-plugins-good/gst-plugins-good-1.4.5.tar.xz 79b1b5f3f7bcaa8a615202eb5e176121eeb8336960f70687e536ad78dbc7e641

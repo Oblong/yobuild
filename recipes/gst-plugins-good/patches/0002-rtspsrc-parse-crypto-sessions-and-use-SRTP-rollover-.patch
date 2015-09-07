@@ -1,0 +1,257 @@
+From b37f199b38d230bd4c36dc648ed52e6abbc62a1f Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?Aleix=20Conchillo=20Flaqu=C3=A9?= <aleix@oblong.com>
+Date: Wed, 21 May 2014 12:32:05 -0700
+Subject: [PATCH] rtspsrc: parse crypto sessions and use SRTP rollover
+ counters
+
+The server can send multiple crypto sessions, one for each SSRC with its
+own rollover counter. We parse this information and pass it to the SRTP
+decoder via the "request-key" signal.
+
+https://bugzilla.gnome.org/show_bug.cgi?id=730540
+---
+ gst/rtsp/gstrtspsrc.c |   90 ++++++++++++++++++++++++++++++++-----------------
+ gst/rtsp/gstrtspsrc.h |    6 ++++
+ 2 files changed, 66 insertions(+), 30 deletions(-)
+
+diff --git a/gst/rtsp/gstrtspsrc.c b/gst/rtsp/gstrtspsrc.c
+index e7573c7..b571278 100644
+--- a/gst/rtsp/gstrtspsrc.c
++++ b/gst/rtsp/gstrtspsrc.c
+@@ -264,8 +264,8 @@ static GstClock *gst_rtspsrc_provide_clock (GstElement * element);
+ static void gst_rtspsrc_uri_handler_init (gpointer g_iface,
+     gpointer iface_data);
+ 
+-static void gst_rtspsrc_sdp_attributes_to_caps (GArray * attributes,
+-    GstCaps * caps);
++static void gst_rtspsrc_sdp_attributes_to_caps (GstRTSPStream * stream,
++    GArray * attributes, GstCaps * caps);
+ 
+ static gboolean gst_rtspsrc_set_proxy (GstRTSPSrc * rtsp, const gchar * proxy);
+ static void gst_rtspsrc_set_tcp_timeout (GstRTSPSrc * rtspsrc, guint64 timeout);
+@@ -1374,9 +1374,9 @@ gst_rtspsrc_collect_payloads (GstRTSPSrc * src, const GstSDPMessage * sdp,
+         stream->container = TRUE;
+     }
+     GST_DEBUG ("mapping sdp session level attributes to caps");
+-    gst_rtspsrc_sdp_attributes_to_caps (sdp->attributes, caps);
++    gst_rtspsrc_sdp_attributes_to_caps (stream, sdp->attributes, caps);
+     GST_DEBUG ("mapping sdp media level attributes to caps");
+-    gst_rtspsrc_sdp_attributes_to_caps (media->attributes, caps);
++    gst_rtspsrc_sdp_attributes_to_caps (stream, media->attributes, caps);
+ 
+     /* the first pt will be the default */
+     if (stream->ptmap->len == 0)
+@@ -1452,6 +1452,10 @@ gst_rtspsrc_create_stream (GstRTSPSrc * src, GstSDPMessage * sdp, gint idx)
+   stream->send_ssrc = g_random_int ();
+   stream->profile = GST_RTSP_PROFILE_AVP;
+   stream->ptmap = g_array_new (FALSE, FALSE, sizeof (PtMapItem));
++  stream->srtp_key = NULL;
++  stream->srtp_cipher = NULL;
++  stream->srtp_auth = NULL;
++  stream->srtp_rocs = g_hash_table_new (g_direct_hash, g_direct_equal);
+   g_array_set_clear_func (stream->ptmap, (GDestroyNotify) clear_ptmap_item);
+ 
+   /* collect bandwidth information for this steam. FIXME, configure in the RTP
+@@ -1565,6 +1569,14 @@ gst_rtspsrc_stream_free (GstRTSPSrc * src, GstRTSPStream * stream)
+     gst_object_unref (stream->rtcppad);
+   if (stream->session)
+     g_object_unref (stream->session);
++  if (stream->srtp_key)
++    gst_buffer_unref (stream->srtp_key);
++  if (stream->srtp_cipher)
++    g_free (stream->srtp_cipher);
++  if (stream->srtp_auth)
++    g_free (stream->srtp_auth);
++  if (stream->srtp_rocs)
++    g_hash_table_unref (stream->srtp_rocs);
+   g_free (stream);
+ }
+ 
+@@ -1701,16 +1713,15 @@ gst_rtspsrc_parse_rtpmap (const gchar * rtpmap, gint * payload, gchar ** name,
+ }
+ 
+ static gboolean
+-parse_keymgmt (const gchar * keymgmt, GstCaps * caps)
++parse_keymgmt (GstRTSPStream * stream, const gchar * keymgmt, GstCaps * caps)
+ {
+   gboolean res = FALSE;
+   gchar *p, *kmpid;
+   gsize size;
+   guchar *data;
++  guint i;
+   GstMIKEYMessage *msg;
+   const GstMIKEYPayload *payload;
+-  const gchar *srtp_cipher;
+-  const gchar *srtp_auth;
+ 
+   p = (gchar *) keymgmt;
+ 
+@@ -1730,8 +1741,16 @@ parse_keymgmt (const gchar * keymgmt, GstCaps * caps)
+   if (msg == NULL)
+     return FALSE;
+ 
+-  srtp_cipher = "aes-128-icm";
+-  srtp_auth = "hmac-sha1-80";
++  stream->srtp_cipher = g_strdup ("aes-128-icm");
++  stream->srtp_auth = g_strdup ("hmac-sha1-80");
++
++  /* check crypto sessions and keep a map of SSRC and rollover counters */
++  for (i = 0; i < gst_mikey_message_get_n_cs (msg); i++) {
++    const GstMIKEYMapSRTP *map = gst_mikey_message_get_cs_srtp (msg, i);
++
++    g_hash_table_insert (stream->srtp_rocs, GUINT_TO_POINTER (map->ssrc),
++        GUINT_TO_POINTER (map->roc));
++  }
+ 
+   /* check the Security policy if any */
+   if ((payload = gst_mikey_message_find_payload (msg, GST_MIKEY_PT_SP, 0))) {
+@@ -1750,11 +1769,11 @@ parse_keymgmt (const gchar * keymgmt, GstCaps * caps)
+         case GST_MIKEY_SP_SRTP_ENC_ALG:
+           switch (param->val[0]) {
+             case 0:
+-              srtp_cipher = "null";
++              stream->srtp_cipher = g_strdup ("null");
+               break;
+             case 2:
+             case 1:
+-              srtp_cipher = "aes-128-icm";
++              stream->srtp_cipher = g_strdup ("aes-128-icm");
+               break;
+             default:
+               break;
+@@ -1763,10 +1782,10 @@ parse_keymgmt (const gchar * keymgmt, GstCaps * caps)
+         case GST_MIKEY_SP_SRTP_ENC_KEY_LEN:
+           switch (param->val[0]) {
+             case AES_128_KEY_LEN:
+-              srtp_cipher = "aes-128-icm";
++              stream->srtp_cipher = g_strdup ("aes-128-icm");
+               break;
+             case AES_256_KEY_LEN:
+-              srtp_cipher = "aes-256-icm";
++              stream->srtp_cipher = g_strdup ("aes-256-icm");
+               break;
+             default:
+               break;
+@@ -1775,11 +1794,11 @@ parse_keymgmt (const gchar * keymgmt, GstCaps * caps)
+         case GST_MIKEY_SP_SRTP_AUTH_ALG:
+           switch (param->val[0]) {
+             case 0:
+-              srtp_auth = "null";
++              stream->srtp_auth = g_strdup ("null");
+               break;
+             case 2:
+             case 1:
+-              srtp_auth = "hmac-sha1-80";
++              stream->srtp_auth = g_strdup ("hmac-sha1-80");
+               break;
+             default:
+               break;
+@@ -1788,10 +1807,10 @@ parse_keymgmt (const gchar * keymgmt, GstCaps * caps)
+         case GST_MIKEY_SP_SRTP_AUTH_KEY_LEN:
+           switch (param->val[0]) {
+             case HMAC_32_KEY_LEN:
+-              srtp_auth = "hmac-sha1-32";
++              stream->srtp_auth = g_strdup ("hmac-sha1-32");
+               break;
+             case HMAC_80_KEY_LEN:
+-              srtp_auth = "hmac-sha1-80";
++              stream->srtp_auth = g_strdup ("hmac-sha1-80");
+               break;
+             default:
+               break;
+@@ -1813,7 +1832,6 @@ parse_keymgmt (const gchar * keymgmt, GstCaps * caps)
+     GstMIKEYPayloadKEMAC *p = (GstMIKEYPayloadKEMAC *) payload;
+     const GstMIKEYPayload *sub;
+     GstMIKEYPayloadKeyData *pkd;
+-    GstBuffer *buf;
+ 
+     if (p->enc_alg != GST_MIKEY_ENC_NULL || p->mac_alg != GST_MIKEY_MAC_NULL)
+       goto done;
+@@ -1825,18 +1843,11 @@ parse_keymgmt (const gchar * keymgmt, GstCaps * caps)
+       goto done;
+ 
+     pkd = (GstMIKEYPayloadKeyData *) sub;
+-    buf =
++    stream->srtp_key =
+         gst_buffer_new_wrapped (g_memdup (pkd->key_data, pkd->key_len),
+         pkd->key_len);
+-    gst_caps_set_simple (caps, "srtp-key", GST_TYPE_BUFFER, buf, NULL);
+   }
+ 
+-  gst_caps_set_simple (caps,
+-      "srtp-cipher", G_TYPE_STRING, srtp_cipher,
+-      "srtp-auth", G_TYPE_STRING, srtp_auth,
+-      "srtcp-cipher", G_TYPE_STRING, srtp_cipher,
+-      "srtcp-auth", G_TYPE_STRING, srtp_auth, NULL);
+-
+   res = TRUE;
+ done:
+   gst_mikey_message_unref (msg);
+@@ -1852,7 +1863,8 @@ done:
+  * collision with gstreamer standard caps properties names
+  */
+ static void
+-gst_rtspsrc_sdp_attributes_to_caps (GArray * attributes, GstCaps * caps)
++gst_rtspsrc_sdp_attributes_to_caps (GstRTSPStream * stream, GArray * attributes,
++    GstCaps * caps)
+ {
+   if (attributes->len > 0) {
+     GstStructure *s;
+@@ -1876,7 +1888,7 @@ gst_rtspsrc_sdp_attributes_to_caps (GArray * attributes, GstCaps * caps)
+       if (!strcmp (key, "range"))
+         continue;
+       if (g_str_equal (key, "key-mgmt")) {
+-        parse_keymgmt (attr->value, caps);
++        parse_keymgmt (stream, attr->value, caps);
+         continue;
+       }
+ 
+@@ -3012,8 +3024,26 @@ set_manager_buffer_mode (GstRTSPSrc * src)
+ static GstCaps *
+ request_key (GstElement * srtpdec, guint ssrc, GstRTSPStream * stream)
+ {
+-  GST_DEBUG ("request key %u", ssrc);
+-  return gst_caps_ref (stream_get_caps_for_pt (stream, stream->default_pt));
++  GstCaps *caps;
++  gpointer proc;
++
++  GST_DEBUG ("request key SSRC %u", ssrc);
++
++  caps = gst_caps_ref (stream_get_caps_for_pt (stream, stream->default_pt));
++  caps = gst_caps_make_writable (caps);
++
++  /* if SSRC is not found, pointer will be 0. */
++  proc = g_hash_table_lookup (stream->srtp_rocs, GUINT_TO_POINTER (ssrc));
++
++  gst_caps_set_simple (caps,
++      "roc", G_TYPE_UINT, GPOINTER_TO_UINT (proc),
++      "srtp-key", GST_TYPE_BUFFER, stream->srtp_key,
++      "srtp-cipher", G_TYPE_STRING, stream->srtp_cipher,
++      "srtp-auth", G_TYPE_STRING, stream->srtp_auth,
++      "srtcp-cipher", G_TYPE_STRING, stream->srtp_cipher,
++      "srtcp-auth", G_TYPE_STRING, stream->srtp_auth, NULL);
++
++  return caps;
+ }
+ 
+ static GstElement *
+diff --git a/gst/rtsp/gstrtspsrc.h b/gst/rtsp/gstrtspsrc.h
+index e90d059..313bab1 100644
+--- a/gst/rtsp/gstrtspsrc.h
++++ b/gst/rtsp/gstrtspsrc.h
+@@ -147,6 +147,12 @@ struct _GstRTSPStream {
+   /* session */
+   GObject      *session;
+ 
++  /* SRTP */
++  GstBuffer    *srtp_key;
++  gchar        *srtp_cipher;
++  gchar        *srtp_auth;
++  GHashTable   *srtp_rocs;
++
+   /* bandwidth */
+   guint         as_bandwidth;
+   guint         rs_bandwidth;
+-- 
+1.7.9.5
+

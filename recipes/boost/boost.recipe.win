@@ -1,0 +1,50 @@
+# Win only
+set -e
+set -x
+. yb_settings
+
+yb_vcvars32
+
+rm -rf ${YB_BUILDDIR}
+mkdir -p ${YB_BUILDDIR}
+mkdir -p "$DESTDIR$PREFIX/bin"
+mkdir -p "$DESTDIR$PREFIX/lib"
+mkdir -p "$DESTDIR$PREFIX/include"
+
+# use variables here so we're less likely to forget changing the yb_package line
+BOOST_MAJOR=1
+BOOST_MINOR=56
+BOOST_MICRO=0
+
+yb_download http://sourceforge.net/projects/boost/files/boost/${BOOST_MAJOR}.${BOOST_MINOR}.${BOOST_MICRO}/boost_${BOOST_MAJOR}_${BOOST_MINOR}_${BOOST_MICRO}.tar.bz2 134732acaf3a6e7eba85988118d943f0fa6b7f0850f65131fff89823ad30ff1d
+
+cd "${YB_BUILDDIR}"/boost_${BOOST_MAJOR}_${BOOST_MINOR}_${BOOST_MICRO}
+
+cmd /c bootstrap.bat
+
+# Note: this builds boost without zlib / bzip2 iostreams support.
+# (It should find our ICU, but see boost bug 9703.)
+# To add bzip2 support, we'd need to give b2 the --with-iostreams option,
+# and either let b2 build those libraries
+# by passing options like -sBZIP2_SOURCE=c:\foo\bzip2-1.0.6
+# or use our prebuilt libraries by passing options like
+# -sBZIP2_BINARY=libbz2 -sBZIP2_INCLUDE=c:/foo/bzip2-1.0.6 -sBZIP2_LIBPATH=c:/foo/bzip2-1.0.6
+# To see how boost uses those flags, google e.g. 'jamfile ICU_PATH' or 'jamfile BZIP2_SOURCE'.
+case $YB_COMPILERNAME in
+msvc2010)
+  ./b2 --toolset=msvc-10.0 --build-type=complete --abbreviate-paths --with-filesystem --with-regex --with-system --with-thread -sICU_PATH=$PREFIXW architecture=x86 address-model=$YB_WIDTH install -j4
+    
+  ;;
+msvc2013)
+  ./b2 --toolset=msvc-12.0 --build-type=complete --abbreviate-paths --with-filesystem --with-regex --with-system --with-thread -sICU_PATH=$PREFIXW architecture=x86 address-model=$YB_WIDTH install -j4
+  ;;
+*)
+  yb_abort "unknown YB_COMPILERNAME $YB_COMPILERNAME"
+  ;;
+esac
+
+cp -a /cygdrive/c/Boost/lib/*.lib "$DESTDIR$PREFIX"/lib
+cp -a /cygdrive/c/Boost/lib/*.dll "$DESTDIR$PREFIX"/bin
+cp -a /cygdrive/c/Boost/include/* "$DESTDIR$PREFIX"/include
+
+yb_package boost-${BOOST_MAJOR}_${BOOST_MINOR}_${BOOST_MICRO}_$YB_WIDTH

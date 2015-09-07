@@ -26,7 +26,12 @@ bs_abort() {
 build_one() {
     RECIPE=$1
 
-    if test -d "$RECIPES"/$RECIPE
+    if yb_is_win && test -f "$RECIPES"/$RECIPE/$RECIPE.recipe.win
+    then
+        echo Building $RECIPE
+        "$RECIPES"/$RECIPE/$RECIPE.recipe.win
+        echo Done building $RECIPE
+    elif test -d "$RECIPES"/$RECIPE
     then
         echo Building $RECIPE
         "$RECIPES"/$RECIPE/$RECIPE.recipe

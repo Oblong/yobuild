@@ -1,0 +1,60 @@
+From 105b52e88a097bdbc18f01a79851c8432de773df Mon Sep 17 00:00:00 2001
+From: Blake Tregre <blake.tregre@gmail.com>
+Date: Thu, 28 Aug 2014 09:53:17 +0300
+Subject: [PATCH] rfbsrc: Clamp out of bounds resolutions to prevent segfaults
+
+https://bugzilla.gnome.org/show_bug.cgi?id=726801
+---
+ gst/librfb/rfbdecoder.c |   18 ++++++++++++++----
+ 1 file changed, 14 insertions(+), 4 deletions(-)
+
+diff --git a/gst/librfb/rfbdecoder.c b/gst/librfb/rfbdecoder.c
+index de762ed..88f3b03 100644
+--- a/gst/librfb/rfbdecoder.c
++++ b/gst/librfb/rfbdecoder.c
+@@ -663,28 +663,38 @@ rfb_decoder_state_wait_for_server_initialisation (RfbDecoder * decoder)
+ 
+   if (decoder->offset_x > 0) {
+     if (decoder->offset_x > decoder->width) {
+-      GST_WARNING ("Trying to crop more than the width of the server");
++      GST_WARNING
++          ("Trying to crop more than the width of the server.  Setting offset-x to 0.");
++      decoder->offset_x = 0;
+     } else {
+       decoder->width -= decoder->offset_x;
+     }
+   }
+   if (decoder->offset_y > 0) {
+     if (decoder->offset_y > decoder->height) {
+-      GST_WARNING ("Trying to crop more than the height of the server");
++      GST_WARNING
++          ("Trying to crop more than the height of the server. Setting offset-y to 0.");
++      decoder->offset_y = 0;
+     } else {
+       decoder->height -= decoder->offset_y;
+     }
+   }
+   if (decoder->rect_width > 0) {
+     if (decoder->rect_width > decoder->width) {
+-      GST_WARNING ("Trying to crop more than the width of the server");
++      GST_WARNING
++          ("Trying to crop more than the width of the server. Setting width to %u.",
++          decoder->width);
++      decoder->rect_width = decoder->width;
+     } else {
+       decoder->width = decoder->rect_width;
+     }
+   }
+   if (decoder->rect_height > 0) {
+     if (decoder->rect_height > decoder->height) {
+-      GST_WARNING ("Trying to crop more than the height of the server");
++      GST_WARNING
++          ("Trying to crop more than the height of the server. Setting height to %u.",
++          decoder->height);
++      decoder->rect_height = decoder->height;
+     } else {
+       decoder->height = decoder->rect_height;
+     }
+-- 
+1.7.9.5
+

@@ -1,0 +1,94 @@
+From 463dd0bfc413781112f4df8e3b17ea9bcb9c1300 Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?Aleix=20Conchillo=20Flaqu=C3=A9?= <aleix@oblong.com>
+Date: Mon, 20 Oct 2014 15:40:59 -0700
+Subject: [PATCH] rtsp-client: add stream transport to context
+
+We add the stream transport to the context so we can get the configured
+client stream transport in the setup request signal.
+---
+ gst/rtsp-server/rtsp-client.c  |    7 +++----
+ gst/rtsp-server/rtsp-context.h |   32 +++++++++++++++++---------------
+ 2 files changed, 20 insertions(+), 19 deletions(-)
+
+diff --git a/gst/rtsp-server/rtsp-client.c b/gst/rtsp-server/rtsp-client.c
+index 9dc3346..a498d24 100644
+--- a/gst/rtsp-server/rtsp-client.c
++++ b/gst/rtsp-server/rtsp-client.c
+@@ -1799,7 +1799,6 @@ handle_setup_request (GstRTSPClient * client, GstRTSPContext * ctx)
+   GstRTSPTransport *ct, *st;
+   GstRTSPStatusCode code;
+   GstRTSPSession *session;
+-  GstRTSPStreamTransport *trans;
+   gchar *trans_str;
+   GstRTSPSessionMedia *sessmedia;
+   GstRTSPMedia *media;
+@@ -1922,14 +1921,14 @@ handle_setup_request (GstRTSPClient * client, GstRTSPContext * ctx)
+   ctx->sessmedia = sessmedia;
+ 
+   /* set in the session media transport */
+-  trans = gst_rtsp_session_media_set_transport (sessmedia, stream, ct);
++  ctx->trans = gst_rtsp_session_media_set_transport (sessmedia, stream, ct);
+ 
+   /* configure the url used to set this transport, this we will use when
+    * generating the response for the PLAY request */
+-  gst_rtsp_stream_transport_set_url (trans, uri);
++  gst_rtsp_stream_transport_set_url (ctx->trans, uri);
+ 
+   /* configure keepalive for this transport */
+-  gst_rtsp_stream_transport_set_keepalive (trans,
++  gst_rtsp_stream_transport_set_keepalive (ctx->trans,
+       (GstRTSPKeepAliveFunc) do_keepalive, session, NULL);
+ 
+   /* create and serialize the server transport */
+diff --git a/gst/rtsp-server/rtsp-context.h b/gst/rtsp-server/rtsp-context.h
+index c2be87e..d21c31a 100644
+--- a/gst/rtsp-server/rtsp-context.h
++++ b/gst/rtsp-server/rtsp-context.h
+@@ -53,27 +53,29 @@ typedef struct _GstRTSPContext GstRTSPContext;
+  * @media: the media for the url can be %NULL
+  * @stream: the stream for the url can be %NULL
+  * @response: the response
++ * @trans: the stream transport, can be %NULL
+  *
+  * Information passed around containing the context of a request.
+  */
+ struct _GstRTSPContext {
+-  GstRTSPServer       *server;
+-  GstRTSPConnection   *conn;
+-  GstRTSPClient       *client;
+-  GstRTSPMessage      *request;
+-  GstRTSPUrl          *uri;
+-  GstRTSPMethod        method;
+-  GstRTSPAuth         *auth;
+-  GstRTSPToken        *token;
+-  GstRTSPSession      *session;
+-  GstRTSPSessionMedia *sessmedia;
+-  GstRTSPMediaFactory *factory;
+-  GstRTSPMedia        *media;
+-  GstRTSPStream       *stream;
+-  GstRTSPMessage      *response;
++  GstRTSPServer          *server;
++  GstRTSPConnection      *conn;
++  GstRTSPClient          *client;
++  GstRTSPMessage         *request;
++  GstRTSPUrl             *uri;
++  GstRTSPMethod           method;
++  GstRTSPAuth            *auth;
++  GstRTSPToken           *token;
++  GstRTSPSession         *session;
++  GstRTSPSessionMedia    *sessmedia;
++  GstRTSPMediaFactory    *factory;
++  GstRTSPMedia           *media;
++  GstRTSPStream          *stream;
++  GstRTSPMessage         *response;
++  GstRTSPStreamTransport *trans;
+ 
+   /*< private >*/
+-  gpointer            _gst_reserved[GST_PADDING];
++  gpointer            _gst_reserved[GST_PADDING - 1];
+ };
+ 
+ GType gst_rtsp_context_get_type (void);
+-- 
+1.7.9.5
+

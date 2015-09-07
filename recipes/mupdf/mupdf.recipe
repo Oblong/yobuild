@@ -1,0 +1,16 @@
+set -e
+set -x
+. yb_settings
+rm -rf $YB_BUILDDIR
+mkdir -p $YB_BUILDDIR
+
+yb_download http://mupdf.com/downloads/mupdf-1.6-source.tar.gz 9813ee330950a641364181649ebd369c947adbcea9d41ed953ec5365640ea563
+
+
+cd $YB_BUILDDIR
+DIRNAME=`ls`
+cd $DIRNAME
+
+make HAVE_X11=no build=release prefix=$PREFIX install
+
+yb_package ${DIRNAME}

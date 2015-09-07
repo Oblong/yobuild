@@ -118,6 +118,17 @@ global_cmake_args() {
     fi
 }
 
+remove_temps() {
+    case "$YB_NO_CLEAN" in
+    "0"|"false"|"")
+        rm -rf "$@";;
+    "1"|"true")
+        echo "YB_NO_CLEAN is true, not cleaning";;
+    *)
+        echo "Error: YB_NO_CLEAN should be 1 or true to disable post-build clean, 0, false, or empty to enable it"; exit 1;;
+    esac
+}
+
 default_build() {
     set_cflags $YB_WIDTH
     eval $YB_DEFAULT_BUILD_PRE_CONFIGURE_HOOK
@@ -183,7 +194,7 @@ lipo_build() {
         lipo -create $DESTDIR.32$PREFIX/$file $DESTDIR.64$PREFIX/$file -output $DESTDIR$PREFIX/$file
     done
 
-    rm -rf $DESTDIR.32 $DESTDIR.64 build-32.tmp build-64.tmp
+    remove_temps $DESTDIR.32 $DESTDIR.64 build-32.tmp build-64.tmp
 }
 
 #--------------- Main ----------------------------
@@ -198,7 +209,7 @@ then
     case `sw_vers -productVersion 2>/dev/null` in
         10.[78]*)
             MIN_MACOSX_VERSION=10.7;;
-        10.9*)
+        10.9*|10.10*)
             MIN_MACOSX_VERSION=10.9;;
         *) bs_abort "Unrecognized version of macosx";;
     esac

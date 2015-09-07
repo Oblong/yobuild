@@ -1,0 +1,23 @@
+set -e
+set -x
+. yb_settings
+
+rm -rf $YB_BUILDDIR
+mkdir -p $YB_BUILDDIR
+
+yb_download http://downloads.sourceforge.net/freeimage/FreeImage3170.zip fbfc65e39b3d4e2cb108c4ffa8c41fd02c07d4d436c594fff8dab1a6d5297f89
+
+cd $YB_BUILDDIR
+DIRNAME=`ls`
+cd $DIRNAME
+yb_patch freeimage
+
+make -j4
+make V=1 install FAKEROOT=fakeroot DESTDIR="$DESTDIR" PREFIX="$PREFIX"
+
+# Yay OSX!  Tell the friggin' library where it is to be installed.
+DYLIB=`cd $DESTDIR$PREFIX/lib; echo libfreeimage-*.*.*.dylib`
+NEW="$PREFIX/lib/$DYLIB"
+install_name_tool -id "$NEW" "$DESTDIR$PREFIX/lib/$DYLIB"
+
+yb_package ${DIRNAME}_$YB_WIDTH

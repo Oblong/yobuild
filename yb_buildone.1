@@ -105,6 +105,8 @@ On the Mac, some packages need the --lipo option to yb_default (and yb_auto_buil
 If special arguents to configure are required, put them in the environment variable YB_CONFIGURE_ARGS.
 (For --lipo builds, you can also set YB_CONFIGURE_ARGS32 and YB_CONFIGURE_ARGS64.)
 .PP
+If you need to run a special command before patching, put it in the environment variable YB_DEFAULT_BUILD_PRE_PATCH_HOOK.
+.PP
 If you need to run a special command before configure, put it in the environment variable YB_DEFAULT_BUILD_PRE_CONFIGURE_HOOK.
 .PP
 If you need to run a special command after building, put it in the environment variable YB_DEFAULT_BUILD_PRE_PACKAGE_HOOK.
@@ -165,6 +167,12 @@ definition of the word) set of packages on MacOSX and Ubuntu.
 .PP
 .SH ENVIRONMENT
 \fByb\_buildone\fR and \fByb\_auto_build\fR use the following environment variables:
+.TP
+.B YB_EXTRA_CFLAGS
+yb_auto_build sets CFLAGS as it sees fit, then appends the contents of YB_EXTRA_CFLAGS if present.
+.TP
+.B YB_EXTRA_LDFLAGS
+yb_auto_build sets LDFLAGS as it sees fit, then appends the contents of YB_EXTRA_LDFLAGS if present.
 .TP
 .B PREFIX
 Where the compiled package will live.  Defaults to /opt/yobuild.

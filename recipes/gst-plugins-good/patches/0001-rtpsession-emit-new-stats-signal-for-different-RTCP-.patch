@@ -1,0 +1,204 @@
+From 9380e09c0bab6e67157f39a45d72ee437d1eface Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?Aleix=20Conchillo=20Flaqu=C3=A9?= <aleix@oblong.com>
+Date: Thu, 24 Apr 2014 17:34:55 -0700
+Subject: [PATCH] rtpsession: emit new stats signal for different RTCP RB
+ blocks
+
+we create a new signal "on-ssrc-stats" that will be called when the
+sender source gets updated with new SSRC stats. this signal is
+equivalent to "on-ssrc-active" if only one RB block is found in the RTCP
+packet.
+
+we also add a new field to the stats "rb-ssrc" that contains the owner
+of the RTCP block.
+
+https://bugzilla.gnome.org/show_bug.cgi?id=728918
+---
+ gst/rtpmanager/rtpsession.c |   32 +++++++++++++++++++++++++++++---
+ gst/rtpmanager/rtpsession.h |    1 +
+ gst/rtpmanager/rtpsource.c  |   12 +++++++++---
+ gst/rtpmanager/rtpsource.h  |    8 +++++---
+ 4 files changed, 44 insertions(+), 9 deletions(-)
+
+diff --git a/gst/rtpmanager/rtpsession.c b/gst/rtpmanager/rtpsession.c
+index 7e2aa0a..e224ce4 100644
+--- a/gst/rtpmanager/rtpsession.c
++++ b/gst/rtpmanager/rtpsession.c
+@@ -42,6 +42,7 @@ enum
+   SIGNAL_ON_SSRC_VALIDATED,
+   SIGNAL_ON_SSRC_ACTIVE,
+   SIGNAL_ON_SSRC_SDES,
++  SIGNAL_ON_SSRC_STATS,
+   SIGNAL_ON_BYE_SSRC,
+   SIGNAL_ON_BYE_TIMEOUT,
+   SIGNAL_ON_TIMEOUT,
+@@ -206,6 +207,19 @@ rtp_session_class_init (RTPSessionClass * klass)
+       NULL, NULL, g_cclosure_marshal_VOID__OBJECT, G_TYPE_NONE, 1,
+       RTP_TYPE_SOURCE);
+   /**
++   * RTPSession::on-ssrc-stats:
++   * @session: the object which received the signal
++   * @src: the active RTPSource
++   *
++   * Notify of a SSRC that has updated its statistics, i.e., when receiving
++   * RTCP.
++   */
++  rtp_session_signals[SIGNAL_ON_SSRC_STATS] =
++      g_signal_new ("on-ssrc-stats", G_TYPE_FROM_CLASS (klass),
++      G_SIGNAL_RUN_LAST, G_STRUCT_OFFSET (RTPSessionClass, on_ssrc_stats),
++      NULL, NULL, g_cclosure_marshal_VOID__OBJECT, G_TYPE_NONE, 1,
++      RTP_TYPE_SOURCE);
++  /**
+    * RTPSession::on-ssrc-sdes:
+    * @session: the object which received the signal
+    * @src: the RTPSource
+@@ -784,6 +798,16 @@ on_ssrc_sdes (RTPSession * sess, RTPSource * source)
+ }
+ 
+ static void
++on_ssrc_stats (RTPSession * sess, RTPSource * source)
++{
++  g_object_ref (source);
++  RTP_SESSION_UNLOCK (sess);
++  g_signal_emit (sess, rtp_session_signals[SIGNAL_ON_SSRC_STATS], 0, source);
++  RTP_SESSION_LOCK (sess);
++  g_object_unref (source);
++}
++
++static void
+ on_bye_ssrc (RTPSession * sess, RTPSource * source)
+ {
+   g_object_ref (source);
+@@ -2006,9 +2030,10 @@ rtp_session_process_rb (RTPSession * sess, RTPSource * source,
+       /* only deal with report blocks for our session, we update the stats of
+        * the sender of the RTCP message. We could also compare our stats against
+        * the other sender to see if we are better or worse. */
+-      /* FIXME, need to keep track who the RB block is from */
+-      rtp_source_process_rb (source, pinfo->ntpnstime, fractionlost,
++      rtp_source_process_rb (source, ssrc, pinfo->ntpnstime, fractionlost,
+           packetslost, exthighestseq, jitter, lsr, dlsr);
++
++      on_ssrc_stats (sess, source);
+     }
+   }
+   on_ssrc_active (sess, source);
+@@ -2300,7 +2325,8 @@ rtp_session_request_local_key_unit (RTPSession * sess, RTPSource * src,
+ {
+   guint32 round_trip = 0;
+ 
+-  rtp_source_get_last_rb (src, NULL, NULL, NULL, NULL, NULL, NULL, &round_trip);
++  rtp_source_get_last_rb (src, NULL, NULL, NULL, NULL, NULL, NULL, NULL,
++      &round_trip);
+ 
+   if (sess->last_keyframe_request != GST_CLOCK_TIME_NONE && round_trip) {
+     GstClockTime round_trip_in_ns = gst_util_uint64_scale (round_trip,
+diff --git a/gst/rtpmanager/rtpsession.h b/gst/rtpmanager/rtpsession.h
+index b567ee4..2ee13a5 100644
+--- a/gst/rtpmanager/rtpsession.h
++++ b/gst/rtpmanager/rtpsession.h
+@@ -293,6 +293,7 @@ struct _RTPSessionClass {
+   void (*on_ssrc_validated) (RTPSession *sess, RTPSource *source);
+   void (*on_ssrc_active)    (RTPSession *sess, RTPSource *source);
+   void (*on_ssrc_sdes)      (RTPSession *sess, RTPSource *source);
++  void (*on_ssrc_stats)     (RTPSession *sess, RTPSource *source);
+   void (*on_bye_ssrc)       (RTPSession *sess, RTPSource *source);
+   void (*on_bye_timeout)    (RTPSession *sess, RTPSource *source);
+   void (*on_timeout)        (RTPSession *sess, RTPSource *source);
+diff --git a/gst/rtpmanager/rtpsource.c b/gst/rtpmanager/rtpsource.c
+index d47c85f..681575a 100644
+--- a/gst/rtpmanager/rtpsource.c
++++ b/gst/rtpmanager/rtpsource.c
+@@ -183,6 +183,7 @@ rtp_source_class_init (RTPSourceClass * klass)
+    * when the source is receiving data and sending RB blocks.
+    *
+    *  "have-rb"          G_TYPE_BOOLEAN  the source has sent RB
++   *  "rb-ssrc"          G_TYPE_UINT     source SSRC
+    *  "rb-fractionlost"  G_TYPE_UINT     lost fraction
+    *  "rb-packetslost"   G_TYPE_INT      lost packets
+    *  "rb-exthighestseq" G_TYPE_UINT     highest received seqnum
+@@ -318,6 +319,7 @@ rtp_source_create_stats (RTPSource * src)
+   gboolean internal = src->internal;
+   gchar *address_str;
+   gboolean have_rb;
++  guint32 ssrc = 0;
+   guint8 fractionlost = 0;
+   gint32 packetslost = 0;
+   guint32 exthighestseq = 0;
+@@ -389,11 +391,12 @@ rtp_source_create_stats (RTPSource * src)
+         (guint) src->last_rr.dlsr, NULL);
+ 
+     /* get the last RB */
+-    have_rb = rtp_source_get_last_rb (src, &fractionlost, &packetslost,
++    have_rb = rtp_source_get_last_rb (src, &ssrc, &fractionlost, &packetslost,
+         &exthighestseq, &jitter, &lsr, &dlsr, &round_trip);
+ 
+     gst_structure_set (s,
+         "have-rb", G_TYPE_BOOLEAN, have_rb,
++        "rb-ssrc", G_TYPE_UINT, (guint) ssrc,
+         "rb-fractionlost", G_TYPE_UINT, (guint) fractionlost,
+         "rb-packetslost", G_TYPE_INT, (gint) packetslost,
+         "rb-exthighestseq", G_TYPE_UINT, (guint) exthighestseq,
+@@ -1288,7 +1291,7 @@ rtp_source_process_sr (RTPSource * src, GstClockTime time, guint64 ntptime,
+  * Update the report block in @src.
+  */
+ void
+-rtp_source_process_rb (RTPSource * src, guint64 ntpnstime,
++rtp_source_process_rb (RTPSource * src, guint32 ssrc, guint64 ntpnstime,
+     guint8 fractionlost, gint32 packetslost, guint32 exthighestseq,
+     guint32 jitter, guint32 lsr, guint32 dlsr)
+ {
+@@ -1309,6 +1312,7 @@ rtp_source_process_rb (RTPSource * src, guint64 ntpnstime,
+ 
+   /* update current */
+   curr->is_valid = TRUE;
++  curr->ssrc = ssrc;
+   curr->fractionlost = fractionlost;
+   curr->packetslost = packetslost;
+   curr->exthighestseq = exthighestseq;
+@@ -1568,7 +1572,7 @@ rtp_source_get_last_sr (RTPSource * src, GstClockTime * time, guint64 * ntptime,
+  * Returns: %TRUE if there was a valid SB report.
+  */
+ gboolean
+-rtp_source_get_last_rb (RTPSource * src, guint8 * fractionlost,
++rtp_source_get_last_rb (RTPSource * src, guint32 * ssrc, guint8 * fractionlost,
+     gint32 * packetslost, guint32 * exthighestseq, guint32 * jitter,
+     guint32 * lsr, guint32 * dlsr, guint32 * round_trip)
+ {
+@@ -1580,6 +1584,8 @@ rtp_source_get_last_rb (RTPSource * src, guint8 * fractionlost,
+   if (!curr->is_valid)
+     return FALSE;
+ 
++  if (ssrc)
++    *ssrc = curr->ssrc;
+   if (fractionlost)
+     *fractionlost = curr->fractionlost;
+   if (packetslost)
+diff --git a/gst/rtpmanager/rtpsource.h b/gst/rtpmanager/rtpsource.h
+index ed4adc9..130f36d 100644
+--- a/gst/rtpmanager/rtpsource.h
++++ b/gst/rtpmanager/rtpsource.h
+@@ -238,8 +238,9 @@ GstFlowReturn   rtp_source_send_rtp            (RTPSource *src, RTPPacketInfo *p
+ /* RTCP messages */
+ void            rtp_source_process_sr          (RTPSource *src, GstClockTime time, guint64 ntptime,
+                                                 guint32 rtptime, guint32 packet_count, guint32 octet_count);
+-void            rtp_source_process_rb          (RTPSource *src, guint64 ntpnstime, guint8 fractionlost,
+-                                                gint32 packetslost, guint32 exthighestseq, guint32 jitter,
++void            rtp_source_process_rb          (RTPSource *src, guint32 ssrc, guint64 ntpnstime,
++                                                guint8 fractionlost, gint32 packetslost,
++                                                guint32 exthighestseq, guint32 jitter,
+                                                 guint32 lsr, guint32 dlsr);
+ 
+ gboolean        rtp_source_get_new_sr          (RTPSource *src, guint64 ntpnstime, GstClockTime running_time,
+@@ -252,7 +253,8 @@ gboolean        rtp_source_get_new_rb          (RTPSource *src, GstClockTime tim
+ gboolean        rtp_source_get_last_sr         (RTPSource *src, GstClockTime *time, guint64 *ntptime,
+                                                 guint32 *rtptime, guint32 *packet_count,
+ 						guint32 *octet_count);
+-gboolean        rtp_source_get_last_rb         (RTPSource *src, guint8 *fractionlost, gint32 *packetslost,
++gboolean        rtp_source_get_last_rb         (RTPSource *src, guint32 * ssrc,
++                                                guint8 *fractionlost, gint32 *packetslost,
+                                                 guint32 *exthighestseq, guint32 *jitter,
+                                                 guint32 *lsr, guint32 *dlsr, guint32 *round_trip);
+ 
+-- 
+1.7.9.5
+

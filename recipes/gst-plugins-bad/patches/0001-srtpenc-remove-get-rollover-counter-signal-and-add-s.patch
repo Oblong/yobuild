@@ -1,0 +1,255 @@
+From 9433ce8c5f9ac0dc83dc318d6575a1702fd7a4d2 Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?Aleix=20Conchillo=20Flaqu=C3=A9?= <aconchillo@gmail.com>
+Date: Wed, 16 Jul 2014 17:40:25 +0200
+Subject: [PATCH] srtpenc: remove get-rollover-counter signal and add stats
+ property
+
+We remove get-rollover-counter signal in favor of the "stats"
+property. The "stats" property is a GstStructure with caps
+application/x-multiplexed that contains an array of
+structures with caps application/x-srtp. Each structure will contain the
+SRTP caps, currently it only contains "ssrc" and "roc" fields.
+
+srtpenc only handles one SSRC right now, so currently the array
+mentioned above will only contain one element.
+---
+ ext/srtp/gstsrtpenc.c |  118 ++++++++++++++++++++++++++++++++-----------------
+ ext/srtp/gstsrtpenc.h |    4 +-
+ 2 files changed, 78 insertions(+), 44 deletions(-)
+
+diff --git a/ext/srtp/gstsrtpenc.c b/ext/srtp/gstsrtpenc.c
+index 20d3e36..8921d85 100644
+--- a/ext/srtp/gstsrtpenc.c
++++ b/ext/srtp/gstsrtpenc.c
+@@ -159,7 +159,8 @@ enum
+   PROP_RTCP_AUTH,
+   PROP_RANDOM_KEY,
+   PROP_REPLAY_WINDOW_SIZE,
+-  PROP_ALLOW_REPEAT_TX
++  PROP_ALLOW_REPEAT_TX,
++  PROP_STATS
+ };
+ 
+ /* the capabilities of the inputs and outputs.
+@@ -234,27 +235,6 @@ static GstPad *gst_srtp_enc_request_new_pad (GstElement * element,
+ static void gst_srtp_enc_release_pad (GstElement * element, GstPad * pad);
+ 
+ 
+-static guint32
+-gst_srtp_enc_get_rollover_counter (GstSrtpEnc * filter, guint32 ssrc)
+-{
+-  guint32 roc = 0;
+-  srtp_stream_t stream;
+-
+-  GST_OBJECT_LOCK (filter);
+-
+-  GST_DEBUG_OBJECT (filter, "retrieving SRTP Rollover Counter, ssrc: %u", ssrc);
+-
+-  if (filter->session) {
+-    stream = srtp_get_stream (filter->session, htonl (ssrc));
+-    if (stream)
+-      roc = stream->rtp_rdbx.index >> 16;
+-  }
+-
+-  GST_OBJECT_UNLOCK (filter);
+-
+-  return roc;
+-}
+-
+ /* initialize the srtpenc's class
+  */
+ static void
+@@ -330,6 +310,9 @@ gst_srtp_enc_class_init (GstSrtpEncClass * klass)
+           "(Note that such repeated transmissions must have the same RTP payload, "
+           "or a severe security weakness is introduced!)",
+           DEFAULT_ALLOW_REPEAT_TX, G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS));
++  g_object_class_install_property (gobject_class, PROP_STATS,
++      g_param_spec_boxed ("stats", "Statistics", "Various statistics",
++          GST_TYPE_STRUCTURE, G_PARAM_READABLE | G_PARAM_STATIC_STRINGS));
+ 
+   /**
+    * GstSrtpEnc::soft-limit:
+@@ -342,22 +325,6 @@ gst_srtp_enc_class_init (GstSrtpEncClass * klass)
+   gst_srtp_enc_signals[SIGNAL_SOFT_LIMIT] =
+       g_signal_new ("soft-limit", G_TYPE_FROM_CLASS (klass),
+       G_SIGNAL_RUN_LAST, 0, NULL, NULL, NULL, G_TYPE_NONE, 0);
+-
+-  /**
+-   * GstSrtpEnc::get-rollover-counter:
+-   * @gstsrtpenc: the element on which the signal is emitted
+-   * @ssrc: The unique SSRC of the stream
+-   *
+-   * Request the SRTP rollover counter for the stream with @ssrc.
+-   */
+-  gst_srtp_enc_signals[SIGNAL_GET_ROLLOVER_COUNTER] =
+-      g_signal_new ("get-rollover-counter", G_TYPE_FROM_CLASS (klass),
+-      G_SIGNAL_RUN_LAST | G_SIGNAL_ACTION, G_STRUCT_OFFSET (GstSrtpEncClass,
+-          get_rollover_counter), NULL, NULL, g_cclosure_marshal_generic,
+-      G_TYPE_UINT, 1, G_TYPE_UINT);
+-
+-  klass->get_rollover_counter =
+-      GST_DEBUG_FUNCPTR (gst_srtp_enc_get_rollover_counter);
+ }
+ 
+ 
+@@ -366,6 +333,7 @@ gst_srtp_enc_class_init (GstSrtpEncClass * klass)
+ static void
+ gst_srtp_enc_init (GstSrtpEnc * filter)
+ {
++  filter->current_ssrc = 0;
+   filter->key_changed = TRUE;
+   filter->first_session = TRUE;
+   filter->key = DEFAULT_MASTER_KEY;
+@@ -391,12 +359,15 @@ max_cipher_key_size (GstSrtpEnc * filter)
+ /* Create stream
+  */
+ static err_status_t
+-gst_srtp_enc_create_session (GstSrtpEnc * filter)
++gst_srtp_enc_create_session (GstSrtpEnc * filter, GstCaps * caps,
++    gboolean is_rtcp)
+ {
+   err_status_t ret;
+   srtp_policy_t policy;
+   GstMapInfo map;
+   guchar tmp[1];
++  guint ssrc;
++  GstStructure *ps;
+ 
+   memset (&policy, 0, sizeof (srtp_policy_t));
+ 
+@@ -441,6 +412,18 @@ gst_srtp_enc_create_session (GstSrtpEnc * filter)
+     policy.key = tmp;
+   }
+ 
++  if (!is_rtcp) {
++    ps = gst_caps_get_structure (caps, 0);
++
++    if (!gst_structure_has_field_typed (ps, "ssrc", G_TYPE_UINT)) {
++      GST_ERROR_OBJECT (filter, "ssrc not set in caps");
++      return FALSE;
++    }
++
++    /* Get ssrc field from caps and use that in SRTP library. */
++    gst_structure_get_uint (ps, "ssrc", &ssrc);
++    filter->current_ssrc = ssrc;
++  }
+   policy.ssrc.value = 0;
+   policy.ssrc.type = ssrc_any_outbound;
+   policy.next = NULL;
+@@ -617,6 +600,51 @@ gst_srtp_enc_dispose (GObject * object)
+   G_OBJECT_CLASS (gst_srtp_enc_parent_class)->dispose (object);
+ }
+ 
++static GArray *
++gst_srtp_enc_get_stats_streams (GstSrtpEnc * filter)
++{
++  GArray *streams;
++  srtp_stream_t stream;
++
++  streams = g_array_new (FALSE, FALSE, sizeof (GValue));
++  g_array_set_clear_func (streams, (GDestroyNotify) g_value_unset);
++
++  if (filter->session) {
++    stream = srtp_get_stream (filter->session, htonl (filter->current_ssrc));
++    if (stream) {
++      GstStructure *s;
++      GValue value = G_VALUE_INIT;
++
++      guint32 roc = stream->rtp_rdbx.index >> 16;
++
++      g_value_init (&value, GST_TYPE_STRUCTURE);
++      s = gst_structure_new ("application/x-srtp",
++          "ssrc", G_TYPE_UINT, filter->current_ssrc,
++          "roc", G_TYPE_UINT, roc, NULL);
++      g_value_take_boxed (&value, s);
++      g_array_append_val (streams, value);
++    }
++  }
++
++  return streams;
++}
++
++static GstStructure *
++gst_srtp_enc_create_stats (GstSrtpEnc * filter)
++{
++  GstStructure *s;
++  GArray *streams;
++
++  streams = gst_srtp_enc_get_stats_streams (filter);
++
++  s = gst_structure_new ("application/x-multiplexed",
++      "streams", G_TYPE_ARRAY, streams, NULL);
++
++  g_array_unref (streams);
++
++  return s;
++}
++
+ static void
+ gst_srtp_enc_set_property (GObject * object, guint prop_id,
+     const GValue * value, GParamSpec * pspec)
+@@ -708,6 +736,9 @@ gst_srtp_enc_get_property (GObject * object, guint prop_id,
+     case PROP_ALLOW_REPEAT_TX:
+       g_value_set_boolean (value, filter->allow_repeat_tx);
+       break;
++    case PROP_STATS:
++      g_value_take_boxed (value, gst_srtp_enc_create_stats (filter));
++      break;
+     default:
+       G_OBJECT_WARN_INVALID_PROPERTY_ID (object, prop_id, pspec);
+       break;
+@@ -774,7 +805,9 @@ gst_srtp_enc_sink_setcaps (GstPad * pad, GstSrtpEnc * filter,
+   GST_OBJECT_LOCK (filter);
+ 
+   if (HAS_CRYPTO (filter))
+-    gst_structure_set (ps, "srtp-key", GST_TYPE_BUFFER, filter->key, NULL);
++    gst_structure_set (ps, "roc", G_TYPE_UINT, 0, NULL);
++
++  gst_structure_set (ps, "srtp-key", GST_TYPE_BUFFER, filter->key, NULL);
+ 
+   /* Add srtp-specific params to source caps */
+   gst_structure_set (ps,
+@@ -988,14 +1021,17 @@ gst_srtp_enc_chain (GstPad * pad, GstObject * parent, GstBuffer * buf,
+   if (filter->key_changed)
+     gst_srtp_enc_reset (filter);
+   if (filter->first_session) {
+-    err_status_t status = gst_srtp_enc_create_session (filter);
++    GstCaps *caps = gst_pad_get_current_caps (pad);
++    err_status_t status = gst_srtp_enc_create_session (filter, caps, is_rtcp);
+     if (status != err_status_ok) {
+       GST_ELEMENT_ERROR (filter, LIBRARY, INIT,
+           ("Could not initialize SRTP encoder"),
+           ("Failed to add stream to SRTP encoder (err: %d)", status));
++      gst_caps_unref (caps);
+       ret = GST_FLOW_ERROR;
+       goto out;
+     }
++    gst_caps_unref (caps);
+   }
+   GST_OBJECT_LOCK (filter);
+ 
+diff --git a/ext/srtp/gstsrtpenc.h b/ext/srtp/gstsrtpenc.h
+index 843af18..c4dfa51 100644
+--- a/ext/srtp/gstsrtpenc.h
++++ b/ext/srtp/gstsrtpenc.h
+@@ -79,6 +79,7 @@ struct _GstSrtpEnc
+   guint rtcp_auth;
+ 
+   srtp_t session;
++  guint current_ssrc;
+   gboolean first_session;
+   gboolean key_changed;
+ 
+@@ -89,9 +90,6 @@ struct _GstSrtpEnc
+ struct _GstSrtpEncClass
+ {
+   GstElementClass parent_class;
+-
+-  /* action signals */
+-  guint32 (*get_rollover_counter) (GstSrtpEnc *encoder, guint32 ssrc);
+ };
+ 
+ GType gst_srtp_enc_get_type (void);
+-- 
+1.7.9.5
+

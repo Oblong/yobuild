@@ -1,5 +1,4 @@
 # depends nettle
 export YB_CONFIGURE_ARGS="--disable-static --disable-gtk-doc"
-# 3.2.7 FTBFS, http://lists.gnupg.org/pipermail/gnutls-devel/2013-November/006588.html, so use 3.2.6
-# well, or 3.1.18, the latest stable release
-yb_default --lipo gnutls ftp://ftp.gnutls.org/gcrypt/gnutls/v3.1/gnutls-3.1.18.tar.xz 62c0a9963bb3e5466bb614e78839f2ae0ed8d2c9f1e3b6d2727214f810fa5dc4
+
+yb_default --lipo gnutls ftp://ftp.gnutls.org/gcrypt/gnutls/v3.3/gnutls-3.3.13.tar.xz 91bf1ef5c159b7f2176f972184545b287af6507ab55a543f6007d31406b97a99

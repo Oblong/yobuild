@@ -1,2 +1,38 @@
 # Like pkg-config, but doesn't require itself to build itself
+
+is_linux() {
+    test -f /etc/issue
+}
+
+# Some developers might want to isolate themselves from system packages,
+# so make this optional
+# Don't look for system .pc files on Mac, there aren't any
+allow_finding_system_packages=true
+if $allow_finding_system_packages && is_linux
+then
+    . yb_settings
+
+    # The Ubuntu 14.04 package also does this with -m32, but let's
+    # stick with one arch on Linux
+    SYSTEM_LIBDIRS=`
+	${CC:-gcc} -print-search-dirs |
+	sed -n -e's/^libraries: =//p' |
+	sed -e's/:/\n/g' |
+	xargs -n1 readlink -f |
+	grep -v 'gcc\|/[0-9.]\+$' |
+	sort -u |
+	tr '\n' : |
+	sed 's/:$//'`
+
+    # Supported on Ubuntu 12.04, required on Ubuntu 14.04
+    DEB_HOST_MULTIARCH=`dpkg-architecture -qDEB_HOST_MULTIARCH`
+
+    SYSTEM_PKG_CONFIG_PATH=/usr/local/lib/$DEB_HOST_MULTIARCH/pkgconfig:/usr/local/lib/pkgconfig:/usr/local/share/pkgconfig:/usr/lib/$DEB_HOST_MULTIARCH/pkgconfig:/usr/lib/pkgconfig:/usr/share/pkgconfig
+
+    export YB_CONFIGURE_ARGS="\
+    --with-pkg-config-dir=$PREFIX/lib/pkgconfig:$SYSTEM_PKG_CONFIG_PATH \
+    --with-system-libdir=$PREFIX/lib:$SYSTEM_LIBDIRS \
+    "
+fi
+
 yb_default pkgconf http://files.etoilebsd.net/pkgconf/pkgconf-0.9.3.tar.bz2 00033a1080a81dfff7cd7ef98d2b054e4cf627376df92a67b98f2e0c243e7f11

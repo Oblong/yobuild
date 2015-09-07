@@ -1,0 +1,44 @@
+From 9bca296f9d567b18bff60e0e7b49731e5ed9b06a Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?Aleix=20Conchillo=20Flaqu=C3=A9?= <aleix@oblong.com>
+Date: Thu, 2 Oct 2014 12:02:48 -0700
+Subject: [PATCH] stream: release lock even not all transports have been
+ removed
+
+We don't want to keep the lock even we return FALSE because not all the
+transports have been removed. This could lead into a deadlock.
+
+https://bugzilla.gnome.org/show_bug.cgi?id=737797
+---
+ gst/rtsp-server/rtsp-stream.c |    9 ++++++++-
+ 1 file changed, 8 insertions(+), 1 deletion(-)
+
+diff --git a/gst/rtsp-server/rtsp-stream.c b/gst/rtsp-server/rtsp-stream.c
+index 456ddd9..be66e13 100644
+--- a/gst/rtsp-server/rtsp-stream.c
++++ b/gst/rtsp-server/rtsp-stream.c
+@@ -1962,7 +1962,8 @@ gst_rtsp_stream_leave_bin (GstRTSPStream * stream, GstBin * bin,
+     goto was_not_joined;
+ 
+   /* all transports must be removed by now */
+-  g_return_val_if_fail (priv->transports == NULL, FALSE);
++  if (priv->transports != NULL)
++    goto transports_not_removed;
+ 
+   clear_tr_cache (priv);
+ 
+@@ -2072,6 +2073,12 @@ was_not_joined:
+     g_mutex_unlock (&priv->lock);
+     return TRUE;
+   }
++transports_not_removed:
++  {
++    GST_ERROR_OBJECT (stream, "can't leave bin (transports not removed)");
++    g_mutex_unlock (&priv->lock);
++    return FALSE;
++  }
+ }
+ 
+ /**
+-- 
+1.7.9.5
+

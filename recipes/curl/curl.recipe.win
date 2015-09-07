@@ -1,0 +1,45 @@
+. yb_settings
+set -e
+set -x
+
+yb_vcvars32
+
+rm -rf ${YB_BUILDDIR}
+mkdir -p ${YB_BUILDDIR}
+mkdir -p "$DESTDIR$PREFIX/bin"
+mkdir -p "$DESTDIR$PREFIX/lib"
+mkdir -p "$DESTDIR$PREFIX/include"
+
+yb_download http://curl.haxx.se/download/curl-7.38.0.tar.gz 5661028aa6532882fa228cd23c99ddbb8b87643dbb1a7ea55c068d34a943dff1
+cd ${YB_BUILDDIR}/curl-7.38.0
+
+cd winbuild
+
+case "$YB_COMPILERNAME" in
+msvc2010) VC=10;;
+msvc2012) VC=11;;
+msvc2013) VC=12;;
+*) yb_abort "unknown YB_COMPILERNAME $YB_COMPILERNAME";;
+esac
+
+case "$YB_WIDTH" in
+32) MACHINE=x86;;
+64) MACHINE=x64;;
+*) yb_abort "unknown YB_WIDTH $YB_WIDTH";;
+esac
+
+nmake /f Makefile.vc mode=dll GEN_PDB=yes VC=$VC MACHINE=$MACHINE
+
+# We don't ship static curl libraries (yet)
+# dlls go in bin because they have to be on PATH
+
+cd ..
+ls
+
+cd builds/libcurl-vc$VC-$MACHINE-release-dll-ipv6-sspi-winssl
+install -m755 bin/* $DESTDIR$PREFIX/bin
+cp -a include/curl $DESTDIR$PREFIX/include
+cp lib/libcurl.exp lib/libcurl.lib $DESTDIR$PREFIX/lib
+cp lib/libcurl.pdb $DESTDIR$PREFIX/bin
+
+yb_package curl

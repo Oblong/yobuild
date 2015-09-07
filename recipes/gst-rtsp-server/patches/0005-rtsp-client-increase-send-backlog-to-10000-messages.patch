@@ -1,0 +1,55 @@
+From 69e52a3aafd05ee35adff80fcc0dafe8e92c4cbe Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?Aleix=20Conchillo=20Flaqu=C3=A9?= <aleix@oblong.com>
+Date: Thu, 3 Sep 2015 14:52:44 -0700
+Subject: [PATCH] rtsp-client: increase send backlog to 10000 messages
+
+We increase the send backlog size to 10000 in order to support
+sending images through the RTSP channel. Under network SLA
+conditions the backlog is getting filled and messages are dropped
+when that happens.
+
+The GstRTSPClient object has a "drop-backlog" property to wait
+until the data can actually be sent, but for some reason that
+caused the source streams to be blocked. For this reason, we
+increase the backlog size to 10000. The number was chosen
+considering sending, at least, a raw 1080p image with 1400 bytes
+payload packets.
+
+https://bugs.oblong.com/show_bug.cgi?id=14402
+---
+ gst/rtsp-server/rtsp-client.c | 17 ++++++++++++++++-
+ 1 file changed, 16 insertions(+), 1 deletion(-)
+
+diff --git a/gst/rtsp-server/rtsp-client.c b/gst/rtsp-server/rtsp-client.c
+index 1feca3f..042c126 100644
+--- a/gst/rtsp-server/rtsp-client.c
++++ b/gst/rtsp-server/rtsp-client.c
+@@ -3435,9 +3435,24 @@ gst_rtsp_client_attach (GstRTSPClient * client, GMainContext * context)
+   gst_rtsp_client_set_send_func (client, do_send_message, priv->watch,
+       (GDestroyNotify) gst_rtsp_watch_unref);
+ 
++  /* We increase the send backlog size to 10000 in order to support
++   * sending images through the RTSP channel. Under network SLA
++   * conditions the backlog is getting filled and messages are dropped
++   * when that happens.
++   *
++   * The GstRTSPClient object has a "drop-backlog" property to wait
++   * until the data can actually be sent, but for some reason that
++   * caused the source streams to be blocked. For this reason, we
++   * increase the backlog size to 10000. The number was chosen
++   * considering sending, at least, a raw 1080p image with 1400 bytes
++   * payload packets.
++   *
++   * https://bugs.oblong.com/show_bug.cgi?id=14402
++   */
++
+   /* FIXME make this configurable. We don't want to do this yet because it will
+    * be superceeded by a cache object later */
+-  gst_rtsp_watch_set_send_backlog (priv->watch, 0, 100);
++  gst_rtsp_watch_set_send_backlog (priv->watch, 0, 10000);
+ 
+   GST_INFO ("client %p: attaching to context %p", client, context);
+   res = gst_rtsp_watch_attach (priv->watch, context);
+-- 
+1.9.1
+

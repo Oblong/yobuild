@@ -1,2 +1,2 @@
 export YB_CONFIGURE_ARGS="--disable-gtk-doc"
-yb_default orc http://code.entropywave.com/download/orc/orc-0.4.18.tar.gz 34d3c8a7259f42bed4dcfbc106c5e3d0cc8e17eeaa73128d1c5eaf92883a6a24
+yb_default orc http://gstreamer.freedesktop.org/src/orc/orc-0.4.22.tar.xz 04ca077f4b25f02cc13090effa55343bbfde986c8d663df430347992aa5cf935

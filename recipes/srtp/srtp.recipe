@@ -1,3 +1,10 @@
-# Without -fPIC, building gstreamer plugins fails.
-export YB_EXTRA_CFLAGS="-fPIC"
-yb_default srtp https://launchpad.net/ubuntu/+archive/primary/+files/srtp_1.4.5~20130609~dfsg.orig.tar.gz 32083ced5621613a0190e4f0d5e7486aa0deb7d3a8f02d7d8bb45c57d0920584 srtp-1.4.5-20130609
+# need our bin for autoreconf
+. yb_settings
+PATH=$PREFIX/bin:$PATH
+
+# This is a pristine tarball from the github clone (nothing removed).
+# We want to generate a new configure. The one in the repo is not updated
+# and actually they shouldn't put that file in there.
+YB_EXTRA_CFLAGS="-fPIC -Wall -O4 -fexpensive-optimizations -funroll-loops" \
+YB_DEFAULT_BUILD_PRE_PATCH_HOOK="autoreconf -vif" \
+yb_default --lipo srtp http://obdumper.oblong.com/yobuild/9.0/sources/libsrtp-1.4.5-gf34baf3.tar.gz 0391f81b3d9773e000d6c5eda0875afde0ae1dfb88820ce1af02beda6918e0d2 srtp-1.4.5-gf34baf3

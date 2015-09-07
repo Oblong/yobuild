@@ -18,8 +18,9 @@ default_build() {
     mkdir -p $YB_BUILDDIR
     yb_download $2 $3 $4
     cd $YB_BUILDDIR
-    DIRNAME=`ls`
+    DIRNAME=`ls | grep -v yobuild.tmp`
     cd $DIRNAME
+    eval $YB_DEFAULT_BUILD_PRE_PATCH_HOOK
     yb_patch $1
     yb_auto_build $lipo
     eval $YB_DEFAULT_BUILD_PRE_PACKAGE_HOOK

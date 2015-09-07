@@ -25,6 +25,9 @@ g_get_real_name() {
 YB_PKG=`echo $pkg | tr A-Z a-z`
 YB_UPKG=`echo $pkg`
 
+# Lord help us, our recipes are lower-cased
+pkg=$YB_PKG
+
 # Configuration common to all packages
 YB_EMAIL=${DEBEMAIL:-$LOGNAME@unknown}
 YB_FULLNAME=${DEBFULLNAME:-`g_get_real_name`}

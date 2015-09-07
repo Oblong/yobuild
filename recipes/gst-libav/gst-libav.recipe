@@ -1,6 +1,7 @@
 # Building on 386 fails with
 #  "cc1: error in backend: Ran out of registers during register allocation"
 # See https://bugzilla.libav.org/show_bug.cgi?id=609
-export YB_CONFIGURE_ARGS="--disable-static --disable-gtk-doc --enable-lgpl "
+
+export YB_CONFIGURE_ARGS="--disable-static --disable-gtk-doc --enable-lgpl"
 export YB_CONFIGURE_ARGS32="--with-libav-extra-configure=--disable-asm"
-yb_default --lipo gst-libav http://gstreamer.freedesktop.org/src/gst-libav/gst-libav-1.2.2.tar.xz 585eb7971006100ad771a852e07bd2f3e23bcc6eb0b1253a40b5a0e40e4e7418
+yb_default --lipo gst-libav http://gstreamer.freedesktop.org/src/gst-libav/gst-libav-1.4.5.tar.xz 605c62624604f3bb5c870844cc1f2711779cc533b004c2aa1d8c0d58557afbbc

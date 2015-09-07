@@ -2,5 +2,11 @@
 # http://stackoverflow.com/questions/16248360/autotools-libtool-link-library-with-libstdc-despite-stdlib-libc-option-pass
 # https://trac.macports.org/ticket/32982
 # by pulling in our fixed libtool.
-export YB_DEFAULT_BUILD_PRE_CONFIGURE_HOOK="libtoolize -f"
+# But only do this for osx 10.7/10.9, as it breaks 10.10?
+if test -x /usr/bin/sw_vers
+then
+    case `sw_vers | awk '/ProductVersion/ {print $2}'` in
+    10.7*|10.9*) export YB_DEFAULT_BUILD_PRE_CONFIGURE_HOOK="libtoolize -f"
+    esac
+fi
 yb_default tiff ftp://ftp.remotesensing.org/pub/libtiff/tiff-3.9.7.tar.gz f5d64dd4ce61c55f5e9f6dc3920fbe5a41e02c2e607da7117a35eb5c320cef6a

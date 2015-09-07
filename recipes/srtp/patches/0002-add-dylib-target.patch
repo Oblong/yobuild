@@ -1,0 +1,58 @@
+--- srtp-1.4.5-gf34baf3/Makefile.in.old	2014-03-22 08:23:48.000000000 -0700
++++ srtp-1.4.5-gf34baf3/Makefile.in	2014-03-22 08:39:24.000000000 -0700
+@@ -10,6 +10,7 @@
+ # libcrypt.a	static library implementing crypto engine
+ # libsrtp.a	static library implementing srtp
+ # libsrtp.so	shared library implementing srtp
++# libsrtp.dylib	mac shared library implementing srtp
+ # clean		removes objects, libs, and executables
+ # distribution  cleans and builds a .tgz
+ # tags          builds etags file from all .c and .h files
+@@ -18,7 +19,15 @@
+ 
+ .PHONY: all test build_table_apps
+ 
+-all: test 
++UNAME := $(shell uname)
++ifeq ($(UNAME),Linux)
++SHLIBTARGET := libsrtp.so
++endif
++ifeq ($(UNAME),Darwin)
++SHLIBTARGET := libsrtp.dylib
++endif
++
++all: test $(SHLIBTARGET)
+ 
+ runtest: build_table_apps test
+ 	@echo "running libsrtp test applications..."
+@@ -119,6 +128,9 @@
+ 	$(CC) -shared -Wl,-soname,libsrtp.so $(LDFLAGS) \
+ 	    -o libsrtp.so $^
+ 
++libsrtp.dylib: $(srtpobj) $(cryptobj) $(gdoi)
++	$(CC) $(LDFLAGS) -dynamiclib -install_name $(libdir)/libsrtp.1.dylib -o libsrtp.1.0.dylib  $^
++
+ # libcryptomath.a contains general-purpose routines that are used to
+ # generate tables and verify cryptoalgorithm implementations - this
+ # library is not meant to be included in production code
+@@ -216,6 +228,11 @@
+ 	if [ "$(srcdir)" != "." ]; then cp crypto/include/*.h $(DESTDIR)$(includedir)/srtp; fi
+ 	if [ -f libsrtp.a ]; then cp libsrtp.a $(DESTDIR)$(libdir)/; fi
+ 	if [ -f libsrtp.so ]; then cp libsrtp.so $(DESTDIR)$(libdir)/; fi
++	if [ -f libsrtp.1.0.dylib ]; then \
++		cp libsrtp.1.0.dylib $(DESTDIR)$(libdir)/; \
++		ln -s libsrtp.1.0.dylib $(DESTDIR)$(libdir)/libsrtp.1.dylib; \
++		ln -s libsrtp.1.0.dylib $(DESTDIR)$(libdir)/libsrtp.dylib; \
++	fi
+ 
+ uninstall:
+ 	rm -f $(DESTDIR)$(includedir)/srtp/*.h
+@@ -225,7 +242,7 @@
+ 
+ clean:
+ 	rm -rf $(cryptobj) $(srtpobj) $(cryptomath) TAGS \
+-        libcryptomath.a libsrtp.a libsrtp.so core *.core test/core
++        libcryptomath.a libsrtp.a libsrtp.so libsrtp.1.0.dylib core *.core test/core
+ 	for a in * */* */*/*; do			\
+               if [ -f "$$a~" ] ; then rm -f $$a~; fi;	\
+         done;

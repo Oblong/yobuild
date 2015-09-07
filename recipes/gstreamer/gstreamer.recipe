@@ -2,4 +2,4 @@
 # can use system bison and flex
 
 export YB_CONFIGURE_ARGS="--disable-static --disable-gtk-doc"
-yb_default --lipo gstreamer http://gstreamer.freedesktop.org/src/gstreamer/gstreamer-1.2.2.tar.xz b9f12137ab663edc6c37429b38ca7911074b9c2a829267fe855d4e57d916a0b6
+yb_default --lipo gstreamer http://gstreamer.freedesktop.org/src/gstreamer/gstreamer-1.4.5.tar.xz 40801aa7f979024526258a0e94707ba42b8ab6f7d2206e56adbc4433155cb0ae

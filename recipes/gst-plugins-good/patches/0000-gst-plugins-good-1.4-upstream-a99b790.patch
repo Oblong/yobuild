@@ -1,0 +1,660 @@
+From 50f05a401e03aa3aa8293be2a273e38f1fb3fd66 Mon Sep 17 00:00:00 2001
+From: Brad Smith <brad@comstyle.com>
+Date: Wed, 7 Jan 2015 21:52:17 -0500
+Subject: [PATCH 01/14] v4l2: Add support for detecting the presence of V4L2
+ support on OpenBSD
+
+https://bugzilla.gnome.org/review?bug=742503
+---
+ configure.ac | 5 ++++-
+ 1 file changed, 4 insertions(+), 1 deletion(-)
+
+diff --git a/configure.ac b/configure.ac
+index 6b44cea..a9c0916 100644
+--- a/configure.ac
++++ b/configure.ac
+@@ -506,7 +506,10 @@ AG_GST_CHECK_FEATURE(GST_V4L2, [Video 4 Linux 2], video4linux2, [
+   AC_MSG_CHECKING([Checking for video4linux2 header ...])
+   AC_CHECK_HEADER(linux/videodev2.h, [ HAVE_GST_V4L2=yes ],
+   [
+-    AC_CHECK_HEADER(sys/videodev2.h, [ HAVE_GST_V4L2=yes ])
++    AC_CHECK_HEADER(sys/videodev2.h, [ HAVE_GST_V4L2=yes ],
++    [
++      AC_CHECK_HEADER(sys/videoio.h, [ HAVE_GST_V4L2=yes ])
++    ])
+   ])
+   if test "x$HAVE_VIDEODEV" = "xno"; then
+      AC_MSG_WARN([video4linux2 was not found])
+-- 
+1.9.1
+
+
+From efc5332f1e9b456d7a0032bee4dbd104235582f5 Mon Sep 17 00:00:00 2001
+From: Nicolas Dufresne <nicolas.dufresne@collabora.co.uk>
+Date: Thu, 8 Jan 2015 11:37:23 -0500
+Subject: [PATCH 02/14] v4l2bufferpool: Never fail on streamoff
+
+Failing streamoff prevents allocator from being disposed hence
+lead to device FD leak. There is no known cases where streamoff
+may fails for which we'd still be streaming. streamoff is known
+to fail when a device is being unplugged (in which case errno
+19/ENODEV is set).
+
+https://bugzilla.gnome.org/show_bug.cgi?id=732734
+---
+ sys/v4l2/gstv4l2bufferpool.c | 41 ++++++++---------------------------------
+ 1 file changed, 8 insertions(+), 33 deletions(-)
+
+diff --git a/sys/v4l2/gstv4l2bufferpool.c b/sys/v4l2/gstv4l2bufferpool.c
+index b8d7bb1..b5b8b13 100644
+--- a/sys/v4l2/gstv4l2bufferpool.c
++++ b/sys/v4l2/gstv4l2bufferpool.c
+@@ -568,7 +568,7 @@ streamon_failed:
+   }
+ }
+ 
+-static gboolean
++static void
+ gst_v4l2_buffer_pool_streamoff (GstV4l2BufferPool * pool)
+ {
+   GstV4l2Object *obj = pool->obj;
+@@ -580,25 +580,20 @@ gst_v4l2_buffer_pool_streamoff (GstV4l2BufferPool * pool)
+     case GST_V4L2_IO_DMABUF_IMPORT:
+       if (pool->streaming) {
+         if (v4l2_ioctl (pool->video_fd, VIDIOC_STREAMOFF, &obj->type) < 0)
+-          goto streamoff_failed;
++          GST_WARNING_OBJECT (pool, "STREAMOFF failed with errno %d (%s)",
++              errno, g_strerror (errno));
+ 
+         pool->streaming = FALSE;
+ 
+         GST_DEBUG_OBJECT (pool, "Stopped streaming");
++
++        if (pool->vallocator)
++          gst_v4l2_allocator_flush (pool->vallocator);
+       }
+       break;
+     default:
+       break;
+   }
+-
+-  return TRUE;
+-
+-streamoff_failed:
+-  {
+-    GST_ERROR_OBJECT (pool, "error with STREAMOFF %d (%s)", errno,
+-        g_strerror (errno));
+-    return FALSE;
+-  }
+ }
+ 
+ static void
+@@ -827,11 +822,7 @@ gst_v4l2_buffer_pool_stop (GstBufferPool * bpool)
+     pool->other_pool = NULL;
+   }
+ 
+-  if (!gst_v4l2_buffer_pool_streamoff (pool))
+-    goto streamoff_failed;
+-
+-  if (pool->vallocator)
+-    gst_v4l2_allocator_flush (pool->vallocator);
++  gst_v4l2_buffer_pool_streamoff (pool);
+ 
+   for (i = 0; i < VIDEO_MAX_FRAME; i++) {
+     if (pool->buffers[i]) {
+@@ -862,11 +853,6 @@ gst_v4l2_buffer_pool_stop (GstBufferPool * bpool)
+   }
+ 
+   return ret;
+-
+-  /* ERRORS */
+-streamoff_failed:
+-  GST_ERROR_OBJECT (pool, "device refused to stop streaming");
+-  return FALSE;
+ }
+ 
+ static void
+@@ -903,10 +889,7 @@ gst_v4l2_buffer_pool_flush_stop (GstBufferPool * bpool)
+   if (pool->other_pool)
+     gst_buffer_pool_set_flushing (pool->other_pool, FALSE);
+ 
+-  if (!gst_v4l2_buffer_pool_streamoff (pool))
+-    goto stop_failed;
+-
+-  gst_v4l2_allocator_flush (pool->vallocator);
++  gst_v4l2_buffer_pool_streamoff (pool);
+ 
+   /* Reset our state */
+   switch (obj->mode) {
+@@ -956,14 +939,6 @@ streamon:
+     gst_v4l2_buffer_pool_streamon (pool);
+ 
+   gst_poll_set_flushing (pool->poll, FALSE);
+-
+-  return;
+-
+-  /* ERRORS */
+-stop_failed:
+-  {
+-    GST_ERROR_OBJECT (pool, "device refused to flush");
+-  }
+ }
+ 
+ static GstFlowReturn
+-- 
+1.9.1
+
+
+From bca79b41713909b3f4e252599d6d15713d8e87e2 Mon Sep 17 00:00:00 2001
+From: Nicolas Dufresne <nicolas.dufresne@collabora.co.uk>
+Date: Wed, 7 Jan 2015 17:48:31 -0500
+Subject: [PATCH 03/14] v4l2bufferpool: Don't ref queued output buffer
+
+This partly revert to the old 1.2 behavior. Instead of keeping a
+reference to the output buffer queued, we simply release them but
+don't forward it to GstBufferPool. This way, the buffer pool don't
+need to be flushed to be stopped.
+
+https://bugzilla.gnome.org/show_bug.cgi?id=742074
+---
+ sys/v4l2/gstv4l2bufferpool.c | 24 ++++++++++++++----------
+ 1 file changed, 14 insertions(+), 10 deletions(-)
+
+diff --git a/sys/v4l2/gstv4l2bufferpool.c b/sys/v4l2/gstv4l2bufferpool.c
+index b5b8b13..e170b09 100644
+--- a/sys/v4l2/gstv4l2bufferpool.c
++++ b/sys/v4l2/gstv4l2bufferpool.c
+@@ -831,8 +831,8 @@ gst_v4l2_buffer_pool_stop (GstBufferPool * bpool)
+       pool->buffers[i] = NULL;
+ 
+       if (V4L2_TYPE_IS_OUTPUT (pool->obj->type))
+-        gst_buffer_unref (buffer);
+-      else
++        gst_v4l2_buffer_pool_release_buffer (bpool, buffer);
++      else                      /* Don't re-enqueue capture buffer on stop */
+         pclass->release_buffer (bpool, buffer);
+ 
+       g_atomic_int_add (&pool->num_queued, -1);
+@@ -917,9 +917,7 @@ gst_v4l2_buffer_pool_flush_stop (GstBufferPool * bpool)
+           gst_mini_object_set_qdata (GST_MINI_OBJECT (buffer),
+               GST_V4L2_IMPORT_QUARK, NULL, NULL);
+ 
+-          if (V4L2_TYPE_IS_OUTPUT (obj->type))
+-            gst_buffer_unref (buffer);
+-          else
++          if (buffer->pool == NULL)
+             gst_v4l2_buffer_pool_release_buffer (bpool, buffer);
+ 
+           g_atomic_int_add (&pool->num_queued, -1);
+@@ -1333,8 +1331,10 @@ gst_v4l2_buffer_pool_release_buffer (GstBufferPool * bpool, GstBuffer * buffer)
+             /* playback, put the buffer back in the queue to refill later. */
+             pclass->release_buffer (bpool, buffer);
+           } else {
+-            /* We keep a ref on queued buffer, so this should never happen */
+-            g_assert_not_reached ();
++            /* the buffer is queued in the device but maybe not played yet. We just
++             * leave it there and not make it available for future calls to acquire
++             * for now. The buffer will be dequeued and reused later. */
++            GST_LOG_OBJECT (pool, "buffer %u is queued", index);
+           }
+           break;
+         }
+@@ -1755,7 +1755,7 @@ gst_v4l2_buffer_pool_process (GstV4l2BufferPool * pool, GstBuffer ** buf)
+             /* don't check return value because qbuf would have failed */
+             gst_v4l2_is_buffer_valid (to_queue, &group);
+ 
+-            /* qbuf has taken the ref of the to_queue buffer but we are no in
++            /* qbuf has stored to_queue buffer but we are not in
+              * streaming state, so the flush logic won't be performed.
+              * To avoid leaks, flush the allocator and restore the queued
+              * buffer as non-queued */
+@@ -1770,15 +1770,19 @@ gst_v4l2_buffer_pool_process (GstV4l2BufferPool * pool, GstBuffer ** buf)
+             goto start_failed;
+           }
+ 
++          /* Remove our ref, we will still hold this buffer in acquire as needed,
++           * otherwise the pool will think it is outstanding and will refuse to stop. */
++          gst_buffer_unref (to_queue);
++
+           if (g_atomic_int_get (&pool->num_queued) >= pool->min_latency) {
+             GstBuffer *out;
+             /* all buffers are queued, try to dequeue one and release it back
+              * into the pool so that _acquire can get to it again. */
+             ret = gst_v4l2_buffer_pool_dqbuf (pool, &out);
+-            if (ret == GST_FLOW_OK)
++            if (ret == GST_FLOW_OK && out->pool == NULL)
+               /* release the rendered buffer back into the pool. This wakes up any
+                * thread waiting for a buffer in _acquire(). */
+-              gst_buffer_unref (out);
++              gst_v4l2_buffer_pool_release_buffer (bpool, out);
+           }
+           break;
+         }
+-- 
+1.9.1
+
+
+From ab60576c97d200cfac626e3f6e5d5efa440939ef Mon Sep 17 00:00:00 2001
+From: Nicolas Dufresne <nicolas.dufresne@collabora.co.uk>
+Date: Wed, 7 Jan 2015 17:55:14 -0500
+Subject: [PATCH 04/14] v4l2bufferpool: Don't clean buffer array in dispose
+
+This should already have been done, plus this code is incorrect
+and may lead to crash.
+
+https://bugzilla.gnome.org/show_bug.cgi?id=742074
+---
+ sys/v4l2/gstv4l2bufferpool.c | 6 ------
+ 1 file changed, 6 deletions(-)
+
+diff --git a/sys/v4l2/gstv4l2bufferpool.c b/sys/v4l2/gstv4l2bufferpool.c
+index e170b09..9876792 100644
+--- a/sys/v4l2/gstv4l2bufferpool.c
++++ b/sys/v4l2/gstv4l2bufferpool.c
+@@ -1355,12 +1355,6 @@ static void
+ gst_v4l2_buffer_pool_dispose (GObject * object)
+ {
+   GstV4l2BufferPool *pool = GST_V4L2_BUFFER_POOL (object);
+-  gint i;
+-
+-  for (i = 0; i < VIDEO_MAX_FRAME; i++) {
+-    if (pool->buffers[i])
+-      gst_buffer_replace (&(pool->buffers[i]), NULL);
+-  }
+ 
+   if (pool->vallocator)
+     gst_object_unref (pool->vallocator);
+-- 
+1.9.1
+
+
+From 56f5ae3f089e13b2593a52ec8fb22168dae96144 Mon Sep 17 00:00:00 2001
+From: Jimmy Ohn <yongjin.ohn@lge.com>
+Date: Tue, 20 Jan 2015 00:32:00 +0000
+Subject: [PATCH 05/14] pulsesink: Free format_info in query_getcaps
+
+If we can not create probe stream in query_getcaps function, it will appear
+memory leakage from format info.
+The following patch prevent memory leakage in pulsesink.
+
+https://bugzilla.gnome.org/show_bug.cgi?id=743178
+---
+ ext/pulse/pulsesink.c | 5 +++--
+ 1 file changed, 3 insertions(+), 2 deletions(-)
+
+diff --git a/ext/pulse/pulsesink.c b/ext/pulse/pulsesink.c
+index 28ea856..8d54d99 100644
+--- a/ext/pulse/pulsesink.c
++++ b/ext/pulse/pulsesink.c
+@@ -2158,13 +2158,14 @@ gst_pulsesink_query_getcaps (GstPulseSink * psink, GstCaps * filter)
+ 
+     pbuf->probe_stream = gst_pulsesink_create_probe_stream (psink, pbuf,
+         format);
++
++    pa_format_info_free (format);
++
+     if (!pbuf->probe_stream) {
+       GST_WARNING_OBJECT (psink, "Could not create probe stream");
+       goto unlock;
+     }
+ 
+-    pa_format_info_free (format);
+-
+     stream = pbuf->probe_stream;
+   }
+ 
+-- 
+1.9.1
+
+
+From fe99398062dc95cfff2d47c46fcc7be94d46abcc Mon Sep 17 00:00:00 2001
+From: Thiago Santos <thiagoss@osg.samsung.com>
+Date: Wed, 4 Feb 2015 02:25:44 -0300
+Subject: [PATCH 06/14] rtph264depay: prevent trying to get 0 bytes from
+ adapter
+
+This causes an assertion and would lead to getting a NULL instead
+of a buffer. Without proper checking this would easily lead to
+a segfault
+
+https://bugzilla.gnome.org/show_bug.cgi?id=737199
+---
+ gst/rtp/gstrtph264depay.c | 10 ++++++----
+ 1 file changed, 6 insertions(+), 4 deletions(-)
+
+diff --git a/gst/rtp/gstrtph264depay.c b/gst/rtp/gstrtph264depay.c
+index 586cf73..756730c 100644
+--- a/gst/rtp/gstrtph264depay.c
++++ b/gst/rtp/gstrtph264depay.c
+@@ -955,10 +955,12 @@ gst_rtp_h264_depay_process (GstRTPBaseDepayload * depayload, GstBuffer * buf)
+         }
+ 
+         outsize = gst_adapter_available (rtph264depay->adapter);
+-        outbuf = gst_adapter_take_buffer (rtph264depay->adapter, outsize);
+-
+-        outbuf = gst_rtp_h264_depay_handle_nal (rtph264depay, outbuf, timestamp,
+-            marker);
++        if (outsize > 0) {
++          outbuf = gst_adapter_take_buffer (rtph264depay->adapter, outsize);
++          outbuf =
++              gst_rtp_h264_depay_handle_nal (rtph264depay, outbuf, timestamp,
++              marker);
++        }
+         break;
+       }
+       case 26:
+-- 
+1.9.1
+
+
+From 6c43b983fecd1c46f895e8cf7b106f62de059ce2 Mon Sep 17 00:00:00 2001
+From: Nicolas Dufresne <nicolas.dufresne@collabora.co.uk>
+Date: Sun, 15 Feb 2015 15:51:55 -0500
+Subject: [PATCH 07/14] v4l2allocator: Fix freeing of shared memory
+
+When memory (that has been shared using gst_memory_share()) are freed,
+the memory (or the DMABUF FD) should not bee freed. These memories have
+a parent. This also removes the extra _v4l2mem_free function and avoid
+calling close twice on the DMABUF FD.
+
+https://bugzilla.gnome.org/show_bug.cgi?id=744573
+---
+ sys/v4l2/gstv4l2allocator.c | 33 ++++++++++++---------------------
+ 1 file changed, 12 insertions(+), 21 deletions(-)
+
+diff --git a/sys/v4l2/gstv4l2allocator.c b/sys/v4l2/gstv4l2allocator.c
+index bf1750c..20e11a9 100644
+--- a/sys/v4l2/gstv4l2allocator.c
++++ b/sys/v4l2/gstv4l2allocator.c
+@@ -145,14 +145,6 @@ _v4l2mem_dispose (GstV4l2Memory * mem)
+   return ret;
+ }
+ 
+-static void
+-_v4l2mem_free (GstV4l2Memory * mem)
+-{
+-  if (mem->dmafd >= 0)
+-    close (mem->dmafd);
+-  g_slice_free (GstV4l2Memory, mem);
+-}
+-
+ static inline GstV4l2Memory *
+ _v4l2mem_new (GstMemoryFlags flags, GstAllocator * allocator,
+     GstMemory * parent, gsize maxsize, gsize align, gsize offset, gsize size,
+@@ -380,23 +372,22 @@ gst_v4l2_allocator_free (GstAllocator * gallocator, GstMemory * gmem)
+   GstV4l2Memory *mem = (GstV4l2Memory *) gmem;
+   GstV4l2MemoryGroup *group = mem->group;
+ 
+-  GST_LOG_OBJECT (allocator, "freeing plane %i of buffer %u",
+-      mem->plane, group->buffer.index);
++  /* Only free unparented memory */
++  if (mem->mem.parent == NULL) {
++    GST_LOG_OBJECT (allocator, "freeing plane %i of buffer %u",
++        mem->plane, group->buffer.index);
+ 
+-  switch (allocator->memory) {
+-    case V4L2_MEMORY_MMAP:
+-      if (mem->data) {
++    if (allocator->memory == V4L2_MEMORY_MMAP) {
++      if (mem->data)
+         v4l2_munmap (mem->data, group->planes[mem->plane].length);
+-      } else if (group->planes[mem->plane].m.fd > 0) {
+-        close (group->planes[mem->plane].m.fd);
+-      }
+-      break;
+-    default:
+-      /* Nothing to do */
+-      break;
++    }
++
++    /* This apply for both mmap with expbuf, and dmabuf imported memory */
++    if (mem->dmafd >= 0)
++      close (mem->dmafd);
+   }
+ 
+-  _v4l2mem_free (mem);
++  g_slice_free (GstV4l2Memory, mem);
+ }
+ 
+ static void
+-- 
+1.9.1
+
+
+From 2e125b6f5b74f5faa45763355570f74f286e6957 Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?Aleix=20Conchillo=20Flaqu=C3=A9?= <aleix@oblong.com>
+Date: Wed, 25 Feb 2015 16:45:11 -0800
+Subject: [PATCH 08/14] v4l2bufferpool: Check corruption flag on the right
+ buffer
+
+We where checking the buffer we are copying to instead of the buffer we
+are copying from.
+
+https://bugzilla.gnome.org/show_bug.cgi?id=740040
+---
+ sys/v4l2/gstv4l2bufferpool.c | 5 ++++-
+ 1 file changed, 4 insertions(+), 1 deletion(-)
+
+diff --git a/sys/v4l2/gstv4l2bufferpool.c b/sys/v4l2/gstv4l2bufferpool.c
+index 9876792..865de4b 100644
+--- a/sys/v4l2/gstv4l2bufferpool.c
++++ b/sys/v4l2/gstv4l2bufferpool.c
+@@ -1634,9 +1634,12 @@ gst_v4l2_buffer_pool_process (GstV4l2BufferPool * pool, GstBuffer ** buf)
+ 
+           /* An empty buffer on capture indicates the end of stream */
+           if (gst_buffer_get_size (tmp) == 0) {
++            gboolean corrupted = GST_BUFFER_FLAG_IS_SET (tmp,
++                GST_BUFFER_FLAG_CORRUPTED);
++
+             gst_v4l2_buffer_pool_release_buffer (bpool, tmp);
+ 
+-            if (GST_BUFFER_FLAG_IS_SET (*buf, GST_BUFFER_FLAG_CORRUPTED))
++            if (corrupted)
+               goto buffer_corrupted;
+             else
+               goto eos;
+-- 
+1.9.1
+
+
+From 54cae21e0e15e871ceec6e7fcdc502727cafaf76 Mon Sep 17 00:00:00 2001
+From: Nicolas Dufresne <nicolas.dufresne@collabora.com>
+Date: Tue, 6 Jan 2015 13:54:25 -0500
+Subject: [PATCH 09/14] v4l2videodec: Don't unlock the stream lock twice
+
+---
+ sys/v4l2/gstv4l2videodec.c | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/sys/v4l2/gstv4l2videodec.c b/sys/v4l2/gstv4l2videodec.c
+index c81f0aa..c0fbebc 100644
+--- a/sys/v4l2/gstv4l2videodec.c
++++ b/sys/v4l2/gstv4l2videodec.c
+@@ -269,7 +269,7 @@ gst_v4l2_video_dec_flush (GstVideoDecoder * decoder)
+     gst_v4l2_object_unlock (self->v4l2output);
+     gst_v4l2_object_unlock (self->v4l2capture);
+     gst_pad_stop_task (decoder->srcpad);
+-    GST_VIDEO_DECODER_STREAM_UNLOCK (decoder);
++    GST_VIDEO_DECODER_STREAM_LOCK (decoder);
+   }
+ 
+   self->output_flow = GST_FLOW_OK;
+-- 
+1.9.1
+
+
+From fe3cdccbf2922053fe3774875e315d5ed9a66a72 Mon Sep 17 00:00:00 2001
+From: Gwenole Beauchesne <gwenole.beauchesne@intel.com>
+Date: Mon, 2 Mar 2015 12:04:00 +0100
+Subject: [PATCH 10/14] v4l2allocator: fix fd leak in DMABUF import mode.
+
+Ensure gst_v4l2_buffer_pool_release_buffer() releases the associated
+GstV4l2MemoryGroup. In particular, this allows for closing the DMABUF
+handles prior to instantiating new ones.
+
+https://bugzilla.gnome.org/show_bug.cgi?id=745443
+---
+ sys/v4l2/gstv4l2bufferpool.c | 4 +++-
+ 1 file changed, 3 insertions(+), 1 deletion(-)
+
+diff --git a/sys/v4l2/gstv4l2bufferpool.c b/sys/v4l2/gstv4l2bufferpool.c
+index 865de4b..ed6a25c 100644
+--- a/sys/v4l2/gstv4l2bufferpool.c
++++ b/sys/v4l2/gstv4l2bufferpool.c
+@@ -1271,7 +1271,9 @@ gst_v4l2_buffer_pool_release_buffer (GstBufferPool * bpool, GstBuffer * buffer)
+         case GST_V4L2_IO_USERPTR:
+         case GST_V4L2_IO_DMABUF_IMPORT:
+         {
+-          if (gst_v4l2_is_buffer_valid (buffer, NULL)) {
++          GstV4l2MemoryGroup *group;
++          if (gst_v4l2_is_buffer_valid (buffer, &group)) {
++            gst_v4l2_allocator_reset_group (pool->vallocator, group);
+             /* queue back in the device */
+             if (pool->other_pool)
+               gst_v4l2_buffer_pool_prepare_buffer (pool, buffer, NULL);
+-- 
+1.9.1
+
+
+From d9e00dd1b4b52d11e30ce7354b1790d38e87450d Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?Tim-Philipp=20M=C3=BCller?= <tim@centricular.com>
+Date: Thu, 25 Dec 2014 21:32:40 +0000
+Subject: [PATCH 11/14] qtmux: fix ALAC muxing
+
+Actually copy the codec data instead of copying nothing
+and then bombing out because there's no data.
+
+Fixes: gst-launch-1.0 audiotestsrc ! avenc_alac ! qtmux ! fakesink
+
+https://bugzilla.gnome.org/show_bug.cgi?id=741783
+---
+ gst/isomp4/gstqtmux.c | 3 ++-
+ 1 file changed, 2 insertions(+), 1 deletion(-)
+
+diff --git a/gst/isomp4/gstqtmux.c b/gst/isomp4/gstqtmux.c
+index 08aa05c..21339cf 100644
+--- a/gst/isomp4/gstqtmux.c
++++ b/gst/isomp4/gstqtmux.c
+@@ -2851,7 +2851,8 @@ gst_qt_mux_audio_sink_set_caps (GstQTPad * qtpad, GstCaps * caps)
+     if (GST_READ_UINT32_LE (map.data + 4) == FOURCC_alac) {
+       len -= 8;
+       codec_config =
+-          gst_buffer_copy_region ((GstBuffer *) codec_data, 0, 8, len);
++          gst_buffer_copy_region ((GstBuffer *) codec_data,
++          GST_BUFFER_COPY_MEMORY, 8, len);
+     } else {
+       codec_config = gst_buffer_ref ((GstBuffer *) codec_data);
+     }
+-- 
+1.9.1
+
+
+From 7833fafbdd48bb8a75dfe78caaf8950eeeb933b7 Mon Sep 17 00:00:00 2001
+From: Thiago Santos <thiagoss@osg.samsung.com>
+Date: Thu, 5 Mar 2015 17:54:43 -0300
+Subject: [PATCH 12/14] directsoundsink: fix modulo math with ringbuffer
+ parameters
+
+To get a multiple of bpf use a subtraction and not an addition
+
+https://bugzilla.gnome.org/show_bug.cgi?id=745684
+---
+ sys/directsound/gstdirectsoundsink.c | 4 ++--
+ 1 file changed, 2 insertions(+), 2 deletions(-)
+
+diff --git a/sys/directsound/gstdirectsoundsink.c b/sys/directsound/gstdirectsoundsink.c
+index 56b0418..bee96d1 100644
+--- a/sys/directsound/gstdirectsoundsink.c
++++ b/sys/directsound/gstdirectsoundsink.c
+@@ -444,12 +444,12 @@ gst_directsound_sink_prepare (GstAudioSink * asink,
+         gst_util_uint64_scale_int (wfx.nAvgBytesPerSec, spec->buffer_time,
+         GST_MSECOND);
+     /* Make sure we make those numbers multiple of our sample size in bytes */
+-    dsoundsink->buffer_size += dsoundsink->buffer_size % spec->info.bpf;
++    dsoundsink->buffer_size -= dsoundsink->buffer_size % spec->info.bpf;
+ 
+     spec->segsize =
+         gst_util_uint64_scale_int (wfx.nAvgBytesPerSec, spec->latency_time,
+         GST_MSECOND);
+-    spec->segsize += spec->segsize % spec->info.bpf;
++    spec->segsize -= spec->segsize % spec->info.bpf;
+     spec->segtotal = dsoundsink->buffer_size / spec->segsize;
+   } else {
+ #ifdef WAVE_FORMAT_DOLBY_AC3_SPDIF
+-- 
+1.9.1
+
+
+From 327515a35f03d4a315dada57cb20c97e7071718c Mon Sep 17 00:00:00 2001
+From: Nicolas Huet <nicolas.huet@parrot.com>
+Date: Wed, 4 Mar 2015 10:27:17 +0100
+Subject: [PATCH 13/14] aacparse: fix LOAS parsing issue
+
+Fix missing index in syncword searching
+
+https://bugzilla.gnome.org/show_bug.cgi?id=745585
+---
+ gst/audioparsers/gstaacparse.c | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/gst/audioparsers/gstaacparse.c b/gst/audioparsers/gstaacparse.c
+index 415e665..04cefe2 100644
+--- a/gst/audioparsers/gstaacparse.c
++++ b/gst/audioparsers/gstaacparse.c
+@@ -809,7 +809,7 @@ gst_aac_parse_detect_stream (GstAacParse * aacparse,
+ 
+   for (i = 0; i < avail - 4; i++) {
+     if (((data[i] == 0xff) && ((data[i + 1] & 0xf6) == 0xf0)) ||
+-        ((data[0] == 0x56) && ((data[1] & 0xe0) == 0xe0)) ||
++        ((data[i] == 0x56) && ((data[i + 1] & 0xe0) == 0xe0)) ||
+         strncmp ((char *) data + i, "ADIF", 4) == 0) {
+       GST_DEBUG_OBJECT (aacparse, "Found signature at offset %u", i);
+       found = TRUE;
+-- 
+1.9.1
+
+
+From a99b790e3553874ce2506f7e0de8ed298a742861 Mon Sep 17 00:00:00 2001
+From: Nicolas Dufresne <nicolas.dufresne@collabora.com>
+Date: Sun, 8 Mar 2015 21:15:53 +0000
+Subject: [PATCH 14/14] v4l2bufferpool: Don't update buffer for OUTPUT
+
+For output device, we should not update the buffer with flags and
+timestamp when we dequeue. The information in the v4l2_buffer is not
+meaningful and it breaks the case where the buffer is rendered at
+multiple places.
+
+https://bugzilla.gnome.org/show_bug.cgi?id=745438
+
+Conflicts:
+	sys/v4l2/gstv4l2bufferpool.c
+---
+ sys/v4l2/gstv4l2bufferpool.c | 5 +++++
+ 1 file changed, 5 insertions(+)
+
+diff --git a/sys/v4l2/gstv4l2bufferpool.c b/sys/v4l2/gstv4l2bufferpool.c
+index ed6a25c..b07faa7 100644
+--- a/sys/v4l2/gstv4l2bufferpool.c
++++ b/sys/v4l2/gstv4l2bufferpool.c
+@@ -1093,6 +1093,10 @@ gst_v4l2_buffer_pool_dqbuf (GstV4l2BufferPool * pool, GstBuffer ** buffer)
+   }
+ #endif
+ 
++  /* Ignore timestamp and field for OUTPUT device */
++  if (V4L2_TYPE_IS_OUTPUT (obj->type))
++    goto done;
++
+   /* set top/bottom field first if v4l2_buffer has the information */
+   switch (group->buffer.field) {
+     case V4L2_FIELD_NONE:
+@@ -1137,6 +1141,7 @@ gst_v4l2_buffer_pool_dqbuf (GstV4l2BufferPool * pool, GstBuffer ** buffer)
+ 
+   GST_BUFFER_TIMESTAMP (outbuf) = timestamp;
+ 
++done:
+   *buffer = outbuf;
+ 
+   return GST_FLOW_OK;
+-- 
+1.9.1
+

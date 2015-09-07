@@ -1,0 +1,40 @@
+--- a/configure.ac	2009-10-01 11:00:33.000000000 -0700
++++ b/configure.ac	2014-04-29 15:09:42.000000000 -0700
+@@ -168,7 +168,16 @@
+         case $host in 
+         *)
+                 DEBUG="-g -Wall -Wno-parentheses -DDEBUG -D__NO_MATH_INLINES"
+-                CFLAGS="-Wall -Wno-parentheses -O3 -fforce-addr -fomit-frame-pointer -finline-functions -funroll-loops"
++
++                # Avoid failure on one compiler that doesn't support -fforce-addr
++                # See https://trac.macports.org/ticket/42934
++                # FIXME: use AX_CHECK_COMPILE_FLAG?
++                if $CC -v 2>&1 | grep clang > /dev/null; then
++                        CFLAGS="-Wall -Wno-parentheses -O3 -fomit-frame-pointer -finline-functions -funroll-loops"
++                else
++                        CFLAGS="-Wall -Wno-parentheses -O3 -fforce-addr -fomit-frame-pointer -finline-functions -funroll-loops"
++                fi
++
+                 PROFILE="-Wall -Wno-parentheses -pg -g -O3 -fno-inline-functions -DDEBUG";;
+         esac
+ fi
+--- a/configure	2014-04-29 15:11:33.000000000 -0700
++++ b/configure	2014-04-29 15:14:50.000000000 -0700
+@@ -11863,7 +12252,16 @@
+         case $host in
+         *)
+                 DEBUG="-g -Wall -Wno-parentheses -DDEBUG -D__NO_MATH_INLINES"
+-                CFLAGS="-Wall -Wno-parentheses -O3 -fforce-addr -fomit-frame-pointer -finline-functions -funroll-loops"
++
++                # Avoid failure on one compiler that doesn't support -fforce-addr
++                # See https://trac.macports.org/ticket/42934
++                # FIXME: use AX_CHECK_COMPILE_FLAG?
++                if $CC -v 2>&1 | grep clang > /dev/null; then
++                        CFLAGS="-Wall -Wno-parentheses -O3 -fomit-frame-pointer -finline-functions -funroll-loops"
++                else
++                        CFLAGS="-Wall -Wno-parentheses -O3 -fforce-addr -fomit-frame-pointer -finline-functions -funroll-loops"
++                fi
++
+                 PROFILE="-Wall -Wno-parentheses -pg -g -O3 -fno-inline-functions -DDEBUG";;
+         esac
+ fi

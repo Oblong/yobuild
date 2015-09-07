@@ -11,4 +11,4 @@ then
     YB_CONFIGURE_ARGS="$CONFIGURE_ARGS --without-ca-certificates"
 fi
 
-yb_default --lipo glib-networking ftp://ftp.gnome.org/pub/gnome/sources/glib-networking/2.39/glib-networking-2.39.3.tar.xz 6128bc306a05c75ee39f35c89e2b1e4da7397cf8f0feed239c06d210175a05e5
+yb_default --lipo glib-networking http://ftp.gnome.org/pub/GNOME/sources/glib-networking/2.42/glib-networking-2.42.0.tar.xz 304dd9e4c0ced69094300e0b9e66cd2eaae7161b9fc3186536d11458677d820d

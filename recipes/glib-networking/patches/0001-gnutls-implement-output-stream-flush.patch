@@ -1,0 +1,105 @@
+From a5aee1a4c2c77b21583772c86c4e373199c888fd Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?Aleix=20Conchillo=20Flaqu=C3=A9?= <aleix@oblong.com>
+Date: Tue, 11 Nov 2014 12:23:23 -0800
+Subject: [PATCH] gnutls: implement output stream flush
+
+GnuTLS buffers already encrypted data in gnutls_record_send when
+returning EAGAIN or EINTR. This means a user can call again
+gnutls_record_send with NULL and 0 and the previous data will be
+sent.
+
+This patch implements GOutputStream flush method by calling
+gnutls_record_send with NULL and 0 and thus making sure no data is
+buffered by GnuTLS.
+---
+ tls/gnutls/gtlsconnection-gnutls.c   |   22 ++++++++++++++++++++++
+ tls/gnutls/gtlsconnection-gnutls.h   |    4 ++++
+ tls/gnutls/gtlsoutputstream-gnutls.c |   17 +++++++++++++++++
+ 3 files changed, 43 insertions(+)
+
+diff --git a/tls/gnutls/gtlsconnection-gnutls.c b/tls/gnutls/gtlsconnection-gnutls.c
+index 348a32c..e0b5461 100644
+--- a/tls/gnutls/gtlsconnection-gnutls.c
++++ b/tls/gnutls/gtlsconnection-gnutls.c
+@@ -1535,6 +1535,28 @@ g_tls_connection_gnutls_write (GTlsConnectionGnutls  *gnutls,
+     return -1;
+ }
+ 
++gboolean
++g_tls_connection_gnutls_flush (GTlsConnectionGnutls  *gnutls,
++			       gboolean               blocking,
++			       GCancellable          *cancellable,
++			       GError               **error)
++{
++  gssize ret;
++
++  if (!claim_op (gnutls, G_TLS_CONNECTION_GNUTLS_OP_WRITE,
++		 blocking, cancellable, error))
++    return -1;
++
++  BEGIN_GNUTLS_IO (gnutls, G_IO_OUT, blocking, cancellable);
++  ret = gnutls_record_send (gnutls->priv->session, NULL, 0);
++  END_GNUTLS_IO (gnutls, G_IO_OUT, ret, _("Error flushing data to TLS socket: %s"), error);
++
++  yield_op (gnutls, G_TLS_CONNECTION_GNUTLS_OP_WRITE);
++
++  /* If nothing to flush, GNUTLS_E_INVALID_REQUEST is returned. */
++  return ((ret > 0) || (ret == GNUTLS_E_INVALID_REQUEST));
++}
++
+ static GInputStream  *
+ g_tls_connection_gnutls_get_input_stream (GIOStream *stream)
+ {
+diff --git a/tls/gnutls/gtlsconnection-gnutls.h b/tls/gnutls/gtlsconnection-gnutls.h
+index a1d0b3d..06f45a1 100644
+--- a/tls/gnutls/gtlsconnection-gnutls.h
++++ b/tls/gnutls/gtlsconnection-gnutls.h
+@@ -69,6 +69,10 @@ gssize   g_tls_connection_gnutls_write         (GTlsConnectionGnutls  *gnutls,
+ 						gboolean               blocking,
+ 						GCancellable          *cancellable,
+ 						GError               **error);
++gboolean g_tls_connection_gnutls_flush (GTlsConnectionGnutls  *gnutls,
++						gboolean               blocking,
++						GCancellable          *cancellable,
++						GError               **error);
+ 
+ gboolean g_tls_connection_gnutls_check         (GTlsConnectionGnutls  *gnutls,
+ 						GIOCondition           condition);
+diff --git a/tls/gnutls/gtlsoutputstream-gnutls.c b/tls/gnutls/gtlsoutputstream-gnutls.c
+index 76bd09d..abbcfa3 100644
+--- a/tls/gnutls/gtlsoutputstream-gnutls.c
++++ b/tls/gnutls/gtlsoutputstream-gnutls.c
+@@ -63,6 +63,22 @@ g_tls_output_stream_gnutls_write (GOutputStream  *stream,
+ }
+ 
+ static gboolean
++g_tls_output_stream_gnutls_flush (GOutputStream  *stream,
++				  GCancellable   *cancellable,
++				  GError        **error)
++{
++  GTlsOutputStreamGnutls *tls_stream = G_TLS_OUTPUT_STREAM_GNUTLS (stream);
++
++  /* Flush might be called when closing, so we don't want to assert in
++   * that case. */
++  if (tls_stream->priv->conn == NULL)
++    return FALSE;
++
++  return g_tls_connection_gnutls_flush (tls_stream->priv->conn,
++					TRUE, cancellable, error);
++}
++
++static gboolean
+ g_tls_output_stream_gnutls_pollable_is_writable (GPollableOutputStream *pollable)
+ {
+   GTlsOutputStreamGnutls *tls_stream = G_TLS_OUTPUT_STREAM_GNUTLS (pollable);
+@@ -109,6 +125,7 @@ g_tls_output_stream_gnutls_class_init (GTlsOutputStreamGnutlsClass *klass)
+   gobject_class->dispose = g_tls_output_stream_gnutls_dispose;
+ 
+   output_stream_class->write_fn = g_tls_output_stream_gnutls_write;
++  output_stream_class->flush = g_tls_output_stream_gnutls_flush;
+ }
+ 
+ static void
+-- 
+1.7.9.5
+

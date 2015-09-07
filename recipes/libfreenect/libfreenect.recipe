@@ -1,5 +1,16 @@
 . yb_settings
-# Mac only; linux's system libusb is sufficient
-# MacOSX ships with a good libusb, but we need the universal build, so specify which one to use.
-YB_CMAKE_ARGS="-DLIBUSB_1_LIBRARIES=$PREFIX/lib/libusb-1.0.dylib -DLIBUSB_1_INCLUDE_DIRS=$PREFIX/include/libusb-1.0" \
-    yb_default libfreenect https://github.com/OpenKinect/libfreenect/archive/v0.2.0.tar.gz 3318ebe32b59e23a1b9be290a61ee23a5ed1119365596eb1cb16f6579f837403
+
+is_mac() {
+    test -f /usr/bin/sw_vers
+}
+
+if is_mac
+then
+   # MacOSX ships with a good libusb, but we need the universal build, so specify which one to use.
+   export YB_CMAKE_ARGS="-DLIBUSB_1_LIBRARIES=$PREFIX/lib/libusb-1.0.dylib -DLIBUSB_1_INCLUDE_DIRS=$PREFIX/include/libusb-1.0"
+else
+   # It defaults to lib64, but we're not doing that yet
+   export YB_CMAKE_ARGS="-DLIB_SUFFIX="
+fi
+
+yb_default libfreenect https://github.com/OpenKinect/libfreenect/archive/v0.2.0.tar.gz 3318ebe32b59e23a1b9be290a61ee23a5ed1119365596eb1cb16f6579f837403

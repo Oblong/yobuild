@@ -1,0 +1,40 @@
+set -e
+set -x
+. yb_settings
+
+rm -rf ${YB_BUILDDIR}
+mkdir -p ${YB_BUILDDIR}
+mkdir -p "$DESTDIR$PREFIX/bin"
+mkdir -p "$DESTDIR$PREFIX/lib"
+mkdir -p "$DESTDIR$PREFIX/include"
+mkdir -p "$DESTDIR$PREFIX/data"
+
+# FIXME: actually build it.  For now, just download prebuilt files.
+
+case $YB_COMPILERNAME in
+msvc2010)
+  vc=2010
+  yb_download http://www.npcglib.org/~stathis/downloads/icu-53.1-vs$vc.7z ba74a534de2e7d5f7540c93ea8b820769176878f975c3719b1e80a48ce95c87b
+  ;;
+msvc2013)
+  vc=2013
+  yb_download http://www.npcglib.org/~stathis/downloads/icu-53.1-vs$vc.7z 33eb22be887d5a67a606352960bbad6a503353fd06d9ccf03640813cfc25974e
+  ;;
+*)
+  yb_abort "Unknown YB_COMPILERNAME '$YB_COMPILERNAME'"
+  ;;
+esac
+
+case $YB_WIDTH in
+32) suffix="";;
+64) suffix=64;;
+esac
+
+cd "${YB_BUILDDIR}"
+
+mv icu-53.1-vs$vc/bin$suffix/* "$DESTDIR$PREFIX/bin"
+mv icu-53.1-vs$vc/include/* "$DESTDIR$PREFIX/include"
+mv icu-53.1-vs$vc/data/* "$DESTDIR$PREFIX/data"
+mv icu-53.1-vs$vc/lib$suffix/* "$DESTDIR$PREFIX/lib"
+
+yb_package libicu53-53_1_$YB_WIDTH

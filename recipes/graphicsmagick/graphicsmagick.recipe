@@ -10,4 +10,4 @@ then
     # http://sourceforge.net/p/graphicsmagick/discussion/250738/thread/53b90041
     export YB_CONFIGURE_ARGS="CC=clang"
 fi
-yb_default graphicsmagick http://downloads.sourceforge.net/project/graphicsmagick/graphicsmagick/1.3.19/GraphicsMagick-1.3.19.tar.xz de64372bb7bbff18cf14afd35c8239d9588592f053fd51a82f7239ad42174a54
+yb_default graphicsmagick http://downloads.sourceforge.net/project/graphicsmagick/graphicsmagick/1.3.20/GraphicsMagick-1.3.20.tar.xz 35fa21da4c1479e08da8351c5b1e363adaca803a0064cfc83084363adce387c9

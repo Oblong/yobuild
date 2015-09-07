@@ -5,8 +5,12 @@
 
 PREFIX := @PREFIX@
 
-override_dh_shlibdeps:
-	dh_shlibdeps -l$(PREFIX)/lib --
+# Added --ignore-missing to work around
+# "dpkg-shlibdeps: error: no dependency information found for /usr/lib/nvidia-304/libGL.so.1..."
+# (-x nvidia-304 doesn't help)
 
-#override_dh_strip:
-#	echo "Comment out this rule if you don't want debug symbols."
+override_dh_shlibdeps:
+	dh_shlibdeps -l$(PREFIX)/lib -- --ignore-missing-info
+
+override_dh_strip:
+	dh_strip --dbg-package=@YB_PKGNAME_PREFIX@-@YB_PKG@-dbg

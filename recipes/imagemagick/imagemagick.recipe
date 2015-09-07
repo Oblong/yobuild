@@ -22,4 +22,4 @@ YB_DEFAULT_BUILD_PRE_PACKAGE_HOOK="sh -ex '$im_srcdir'/fix_imagemagic_libs" \
 CXXLD="$CXX $CXXFLAGS" \
 YB_CONFIGURE_ARGS="--without-perl --without-x --disable-openmp --disable-opencl" \
 YB_TAR_ARGS="--exclude www --exclude images" \
-    yb_default imagemagick http://www.imagemagick.org/download/ImageMagick-6.8.8-4.tar.xz 591e91b4e3aa43326f647ece44193da48eb2ab93cb824c5b567bb559bd83dd2d
+    yb_default imagemagick http://www.imagemagick.org/download/releases/ImageMagick-6.8.9-7.tar.xz 45670f37ebd3354d64e45df5462b929b5b843dee2b038b0ad524491492bffbf9

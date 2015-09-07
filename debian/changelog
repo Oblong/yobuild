@@ -1,3 +1,126 @@
+yobuild (10.12) trusty; urgency=low
+
+  [ Aleix ]
+  * gst-plugins-good: fix for bug 748358
+
+ -- Dan Kegel <dank@oblong.com>  Tue, 12 May 2015 08:54:35 -0700
+
+yobuild (10.10) trusty; urgency=low
+
+  [ Walter Sosa ]
+  * Update to newer libusb 1.0.19 and include it on ubuntu
+  * Add support for mupdf 1.6 to improve pdf conversions
+  * Update gnutls to 3.3.13 to fix security bug 13290: USN-2540-1
+
+ -- Walter Sosa <wasosa@oblong.com>  Mon, 13 Apr 2015 14:45:10 -0700
+
+yobuild (10.8) trusty; urgency=low
+
+  [ Aleix ]
+  * INOGENI video ingest support
+
+ -- Dan Kegel <dank@kegel.com>  Fri, 20 Mar 2015 15:46:51 -0700
+
+yobuild (10.4) trusty; urgency=low
+
+  [ Dan Kegel ]
+  * On OSX 10.7, tell boost to not use some features not present in libstdc++
+    This fixes build problems in Greenhouse and Mezzanine Screencast
+  * Draft workaround for gnome bug 739799: gstreamer rtsp tls crash
+
+ -- Dan Kegel <dank@kegel.com>  Wed, 12 Nov 2014 01:48:45 +0000
+
+yobuild (10.2) trusty; urgency=low
+
+  [ Dan Kegel ]
+  * Increment minor version number to 2 to celebrate first release.
+
+ -- Dan Kegel <dank@kegel.com>  Wed, 12 Nov 2014 01:48:45 +0000
+
+yobuild (10.0) trusty; urgency=low
+
+  [ Dan Kegel ]
+  * Increment major version number to 10 in preparation for new gstreamer
+    and new windows layout
+
+ -- Dan Kegel <dank@kegel.com>  Fri, 29 Aug 2014 14:59:32 -0700
+
+yobuild (0.4.12) trusty; urgency=low
+
+  [ Aleix Conchillo Flaqué ]
+  * gst-libav: fix frames lost at EOS harder; see
+    https://bugzilla.gnome.org/show_bug.cgi?id=734661
+
+ -- Dan Kegel <dank@kegel.com>  Thu, 14 Aug 2014 08:27:55 -0700
+
+yobuild (0.4.11) trusty; urgency=low
+
+  [ Aleix Conchillo Flaqué ]
+  * gst-libav: fix frames lost at EOS; see oblong bug 11967 and
+    https://bugzilla.gnome.org/show_bug.cgi?id=734608
+
+ -- Dan Kegel <dank@kegel.com>  Mon, 11 Aug 2014 10:38:44 -0700
+
+yobuild (0.4.10) trusty; urgency=low
+
+  [ Aleix Conchillo Flaqué ]
+  * orc: update to 0.4.19
+
+ -- Dan Kegel <dank@kegel.com>  Mon, 11 Aug 2014 10:38:44 -0700
+
+yobuild (0.4.9) precise; urgency=low
+
+  [ Dan Kegel ]
+  * x264: update to fix xcode 5.1 build
+  * gst-plugins-good: when using our own libvpx on ubuntu, must pass
+    -pthread. Also don't need system libvpx-dev anymore.
+  * yobuild-ubu12-example.sh: also build libvpx, as system version not
+    new enough for vp9
+  * gnutls: update to 3.2.15 to fix CVE-2014-3466
+
+ -- Dan Kegel <dank@kegel.com>  Wed, 4 Jun 2014 19:08:29 -0700
+
+yobuild (0.4.4) precise; urgency=low
+
+  [ Dan Kegel ]
+  * boost: embed RPATH
+
+ -- Dan Kegel <dank@kegel.com>  Tue, 6 May 2014 07:47:31 -0700
+
+yobuild (0.4.3) precise; urgency=low
+
+  [ Dan Kegel ]
+  * Add blanket dependency on libv4l-dev (fixme: only gst-plugins-*
+    and gst-rtsp-server should depend on it)
+
+ -- Dan Kegel <dank@kegel.com>  Fri, 2 May 2014 10:47:31 -0700
+
+yobuild (0.4.2) precise; urgency=low
+
+  [ Dan Kegel ]
+  * libtheora: work around XCode no longer accepting --force-addr
+
+ -- Dan Kegel <dank@kegel.com>  Tue, 29 Apr 2014 15:47:31 -0700
+
+yobuild (0.4.1) precise; urgency=low
+
+  [ Aleix Conchillo Flaque ]
+
+  * gst-plugins-good: patch to emit a new signal for every RTCP stats found
+    https://bugs.oblong.com/show_bug.cgi?id=9652
+    https://bugzilla.gnome.org/show_bug.cgi?id=728918
+
+  * gst-rtsp-server: patch to emit a signal before sending responses
+    https://bugs.oblong.com/show_bug.cgi?id=9652
+
+ -- Dan Kegel <dank@kegel.com>  Fri, 04 Apr 2014 09:47:31 -0700
+
+yobuild (0.4) precise; urgency=low
+
+  * Tagging version proposed for g-speak 3.14
+
+ -- Dan Kegel <dank@kegel.com>  Fri, 04 Apr 2014 09:47:31 -0700
+
 yobuild (0.2.1) precise; urgency=low
 
   * First public release

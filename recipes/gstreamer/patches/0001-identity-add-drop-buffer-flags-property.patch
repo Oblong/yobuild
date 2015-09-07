@@ -1,0 +1,99 @@
+From 2bb2e4a1089385dc28253647ae19427d474e8a98 Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?Aleix=20Conchillo=20Flaqu=C3=A9?= <aleix@oblong.com>
+Date: Thu, 18 Jun 2015 13:56:53 -0700
+Subject: [PATCH] identity: add drop-buffer-flags property
+
+New property drop-buffer-flags that will discard buffers that have the
+given flags set.
+
+https://bugzilla.gnome.org/show_bug.cgi?id=751182
+---
+ plugins/elements/gstidentity.c | 17 +++++++++++++++++
+ plugins/elements/gstidentity.h |  1 +
+ 2 files changed, 18 insertions(+)
+
+diff --git a/plugins/elements/gstidentity.c b/plugins/elements/gstidentity.c
+index dbc9494..cba9862 100644
+--- a/plugins/elements/gstidentity.c
++++ b/plugins/elements/gstidentity.c
+@@ -63,6 +63,7 @@ enum
+ #define DEFAULT_DUPLICATE               1
+ #define DEFAULT_ERROR_AFTER             -1
+ #define DEFAULT_DROP_PROBABILITY        0.0
++#define DEFAULT_DROP_BUFFER_FLAGS       0
+ #define DEFAULT_DATARATE                0
+ #define DEFAULT_SILENT                  TRUE
+ #define DEFAULT_SINGLE_SEGMENT          FALSE
+@@ -78,6 +79,7 @@ enum
+   PROP_SLEEP_TIME,
+   PROP_ERROR_AFTER,
+   PROP_DROP_PROBABILITY,
++  PROP_DROP_BUFFER_FLAGS,
+   PROP_DATARATE,
+   PROP_SILENT,
+   PROP_SINGLE_SEGMENT,
+@@ -156,6 +158,11 @@ gst_identity_class_init (GstIdentityClass * klass)
+           "The Probability a buffer is dropped", 0.0, 1.0,
+           DEFAULT_DROP_PROBABILITY,
+           G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS));
++  g_object_class_install_property (gobject_class, PROP_DROP_BUFFER_FLAGS,
++      g_param_spec_flags ("drop-buffer-flags", "Drop buffers",
++          "Drop buffers with the given flags",
++          GST_TYPE_BUFFER_FLAGS, DEFAULT_DROP_BUFFER_FLAGS,
++          G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS));
+   g_object_class_install_property (gobject_class, PROP_DATARATE,
+       g_param_spec_int ("datarate", "Datarate",
+           "(Re)timestamps buffers with number of bytes per second (0 = inactive)",
+@@ -247,6 +254,7 @@ gst_identity_init (GstIdentity * identity)
+   identity->sleep_time = DEFAULT_SLEEP_TIME;
+   identity->error_after = DEFAULT_ERROR_AFTER;
+   identity->drop_probability = DEFAULT_DROP_PROBABILITY;
++  identity->drop_buffer_flags = DEFAULT_DROP_BUFFER_FLAGS;
+   identity->datarate = DEFAULT_DATARATE;
+   identity->silent = DEFAULT_SILENT;
+   identity->single_segment = DEFAULT_SINGLE_SEGMENT;
+@@ -527,6 +535,9 @@ gst_identity_transform_ip (GstBaseTransform * trans, GstBuffer * buf)
+       goto dropped;
+   }
+ 
++  if (GST_BUFFER_FLAG_IS_SET (buf, identity->drop_buffer_flags))
++    goto dropped;
++
+   if (identity->dump) {
+     GstMapInfo info;
+ 
+@@ -640,6 +651,9 @@ gst_identity_set_property (GObject * object, guint prop_id,
+     case PROP_DROP_PROBABILITY:
+       identity->drop_probability = g_value_get_float (value);
+       break;
++    case PROP_DROP_BUFFER_FLAGS:
++      identity->drop_buffer_flags = g_value_get_flags (value);
++      break;
+     case PROP_DATARATE:
+       identity->datarate = g_value_get_int (value);
+       break;
+@@ -683,6 +697,9 @@ gst_identity_get_property (GObject * object, guint prop_id, GValue * value,
+     case PROP_DROP_PROBABILITY:
+       g_value_set_float (value, identity->drop_probability);
+       break;
++    case PROP_DROP_BUFFER_FLAGS:
++      g_value_set_flags (value, identity->drop_buffer_flags);
++      break;
+     case PROP_DATARATE:
+       g_value_set_int (value, identity->datarate);
+       break;
+diff --git a/plugins/elements/gstidentity.h b/plugins/elements/gstidentity.h
+index 5d613b2..d1c5714 100644
+--- a/plugins/elements/gstidentity.h
++++ b/plugins/elements/gstidentity.h
+@@ -65,6 +65,7 @@ struct _GstIdentity {
+   gboolean 	 check_imperfect_timestamp;
+   gboolean 	 check_imperfect_offset;
+   gboolean	 single_segment;
++  GstBufferFlags drop_buffer_flags;
+   GstClockTime   prev_timestamp;
+   GstClockTime   prev_duration;
+   guint64        prev_offset;
+-- 
+1.9.1
+

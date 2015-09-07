@@ -1,7 +1,9 @@
 # Disable examples because they use system gtk/qt, which doesn't link properly against yobuild glib (which is too new)
 # Disable opencv because we don't need gstcvdilate et al, and because leaving it enabled
 # without also building opencv first has caused build failures ("can't find cv.h").
-# Likewise --disable-rsvg
-export YB_CONFIGURE_ARGS="--disable-static --disable-gtk-doc --disable-examples --disable-opencv --disable-rsvg"
+# Likewise --disable-openexr and --disable-rsvg
+
+export YB_CONFIGURE_ARGS="--disable-static --disable-gtk-doc --disable-examples --disable-opencv --disable-openexr --disable-rsvg"
+
 # FIXME: copy 32-bit-only plugins like we did for 0.10
-yb_default --lipo gst-plugins-bad http://gstreamer.freedesktop.org/src/gst-plugins-bad/gst-plugins-bad-1.2.2.tar.xz 63e78db11b482d0529a0bde01e2ac23fd32c7cb99a5508b53ee4ca1051871b2c
+yb_default --lipo gst-plugins-bad http://gstreamer.freedesktop.org/src/gst-plugins-bad/gst-plugins-bad-1.4.5.tar.xz 152fad7250683d72f9deb36c5685428338365fe4a4c87ffe15e38783b14f983c

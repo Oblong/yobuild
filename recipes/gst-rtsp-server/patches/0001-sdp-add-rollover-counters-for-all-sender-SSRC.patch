@@ -1,0 +1,199 @@
+From 922be95b95ca6437d75041a907177034e2594404 Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?Aleix=20Conchillo=20Flaqu=C3=A9?= <aleix@oblong.com>
+Date: Wed, 21 May 2014 12:29:31 -0700
+Subject: [PATCH] sdp: add rollover counters for all sender SSRC
+
+We add different crypto sessions in MIKEY, one for each sender
+SSRC. Currently, all of them will have the same security policy, 0.
+
+The rollover counters are obtained from the srtpenc element using the
+"stats" property.
+
+https://bugzilla.gnome.org/show_bug.cgi?id=730539
+---
+ gst/rtsp-server/rtsp-sdp.c    |   96 +++++++++++++++++++++++++++++++++++++++--
+ gst/rtsp-server/rtsp-stream.c |   26 +++++++++++
+ gst/rtsp-server/rtsp-stream.h |    2 +
+ 3 files changed, 120 insertions(+), 4 deletions(-)
+
+diff --git a/gst/rtsp-server/rtsp-sdp.c b/gst/rtsp-server/rtsp-sdp.c
+index 07aea90..7dc2649 100644
+--- a/gst/rtsp-server/rtsp-sdp.c
++++ b/gst/rtsp-server/rtsp-sdp.c
+@@ -16,6 +16,9 @@
+  * Free Software Foundation, Inc., 51 Franklin St, Fifth Floor,
+  * Boston, MA 02110-1301, USA.
+  */
++
++#define GLIB_DISABLE_DEPRECATION_WARNINGS
++
+ /**
+  * SECTION:rtsp-sdp
+  * @short_description: Make SDP messages
+@@ -104,6 +107,93 @@ auth_key_length_from_auth_name (const gchar * auth)
+   }
+ }
+ 
++static guint
++get_roc_from_stats (GstStructure * stats, guint ssrc)
++{
++  guint roc = 0;
++
++  if (!gst_structure_has_field_typed (stats, "streams", G_TYPE_ARRAY)) {
++    GST_WARNING ("stats doesn't have a 'streams' field");
++  } else {
++    const GValue *value;
++    GArray *streams;
++    guint i;
++
++    value = gst_structure_get_value (stats, "streams");
++
++    streams = g_value_get_boxed (value);
++
++    // Look if there's any SSRC that matches.
++    for (i = 0; i < streams->len; i++) {
++      guint stream_ssrc;
++      GstStructure *stream;
++      GValue value = G_VALUE_INIT;
++
++      value = g_array_index (streams, GValue, i);
++      stream = g_value_get_boxed (&value);
++
++      gst_structure_get_uint (stream, "ssrc", &stream_ssrc);
++
++      if (stream_ssrc == ssrc) {
++        gst_structure_get_uint (stream, "roc", &roc);
++        break;
++      }
++    }
++  }
++
++  return roc;
++}
++
++static void
++mikey_add_crypto_sessions (GstRTSPStream * stream, GstMIKEYMessage * msg)
++{
++  guint i;
++  GObject *session;
++  GstElement *encoder;
++  GValueArray *sources;
++
++  session = gst_rtsp_stream_get_rtpsession (stream);
++  if (session == NULL)
++    return;
++
++  encoder = gst_rtsp_stream_get_srtp_encoder (stream);
++  if (encoder == NULL) {
++    g_object_unref (session);
++    return;
++  }
++
++  g_object_get (session, "sources", &sources, NULL);
++  for (i = 0; i < sources->n_values; i++) {
++    GValue *val;
++    GObject *source;
++    guint32 ssrc;
++    gboolean is_sender;
++
++    val = g_value_array_get_nth (sources, i);
++    source = (GObject *) g_value_get_object (val);
++
++    g_object_get (source, "ssrc", &ssrc, "is-sender", &is_sender, NULL);
++
++    if (is_sender) {
++      guint32 roc = 0;
++      GstStructure *stats;
++
++      g_object_get (encoder, "stats", &stats, NULL);
++
++      if (stats) {
++        roc = get_roc_from_stats (stats, ssrc);
++        gst_structure_free (stats);
++      }
++
++      gst_mikey_message_add_cs_srtp (msg, 0, ssrc, roc);
++    }
++  }
++  g_value_array_free (sources);
++
++  gst_object_unref (encoder);
++  g_object_unref (session);
++}
++
+ static void
+ make_media (GstSDPMessage * sdp, GstSDPInfo * info, GstRTSPMedia * media,
+     GstRTSPStream * stream, GstStructure * s, GstRTSPProfile profile)
+@@ -219,7 +309,6 @@ make_media (GstSDPMessage * sdp, GstSDPInfo * info, GstRTSPMedia * media,
+     gsize size;
+     gchar *base64;
+     guint8 byte;
+-    guint32 ssrc;
+ 
+     val = gst_structure_get_value (s, "srtp-key");
+     if (val == NULL)
+@@ -242,9 +331,8 @@ make_media (GstSDPMessage * sdp, GstSDPInfo * info, GstRTSPMedia * media,
+     /* unencrypted MIKEY message, we send this over TLS so this is allowed */
+     gst_mikey_message_set_info (msg, GST_MIKEY_VERSION, GST_MIKEY_TYPE_PSK_INIT,
+         FALSE, GST_MIKEY_PRF_MIKEY_1, 0, GST_MIKEY_MAP_TYPE_SRTP);
+-    /* add policy '0' for our SSRC */
+-    gst_rtsp_stream_get_ssrc (stream, &ssrc);
+-    gst_mikey_message_add_cs_srtp (msg, 0, ssrc, 0);
++    /* add policy '0' for all sending SSRC */
++    mikey_add_crypto_sessions (stream, msg);
+     /* timestamp is now */
+     gst_mikey_message_add_t_now_ntp_utc (msg);
+     /* add some random data */
+diff --git a/gst/rtsp-server/rtsp-stream.c b/gst/rtsp-server/rtsp-stream.c
+index 7e0d3c2..8aae8fd 100644
+--- a/gst/rtsp-server/rtsp-stream.c
++++ b/gst/rtsp-server/rtsp-stream.c
+@@ -1271,6 +1271,32 @@ gst_rtsp_stream_get_rtpsession (GstRTSPStream * stream)
+ }
+ 
+ /**
++ * gst_rtsp_stream_get_encoder:
++ * @stream: a #GstRTSPStream
++ *
++ * Get the SRTP encoder for this stream.
++ *
++ * Returns: (transfer full): The SRTP encoder for this stream. Unref after usage.
++ */
++GstElement *
++gst_rtsp_stream_get_srtp_encoder (GstRTSPStream * stream)
++{
++  GstRTSPStreamPrivate *priv;
++  GstElement *encoder;
++
++  g_return_val_if_fail (GST_IS_RTSP_STREAM (stream), NULL);
++
++  priv = stream->priv;
++
++  g_mutex_lock (&priv->lock);
++  if ((encoder = priv->srtpenc))
++    g_object_ref (encoder);
++  g_mutex_unlock (&priv->lock);
++
++  return encoder;
++}
++
++/**
+  * gst_rtsp_stream_get_ssrc:
+  * @stream: a #GstRTSPStream
+  * @ssrc: (out): result ssrc
+diff --git a/gst/rtsp-server/rtsp-stream.h b/gst/rtsp-server/rtsp-stream.h
+index 135689e..ae2a484 100644
+--- a/gst/rtsp-server/rtsp-stream.h
++++ b/gst/rtsp-server/rtsp-stream.h
+@@ -120,6 +120,8 @@ GstRTSPAddress *  gst_rtsp_stream_get_multicast_address (GstRTSPStream *stream,
+ 
+ GObject *         gst_rtsp_stream_get_rtpsession   (GstRTSPStream *stream);
+ 
++GstElement *      gst_rtsp_stream_get_srtp_encoder (GstRTSPStream *stream);
++
+ void              gst_rtsp_stream_get_ssrc         (GstRTSPStream *stream,
+                                                     guint *ssrc);
+ 
+-- 
+1.7.9.5
+

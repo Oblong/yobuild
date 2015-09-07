@@ -10,26 +10,25 @@ is_mac() {
 }
 
 do_OpenNI2() {
-    if is_mac
-    then
-        case $YB_WIDTH in
-        32|64) echo "OpenNI2 only builds in universal mode.  We could probably patch it to not do that if we wanted."; return;;
-        esac
-    fi
+    which javac || true
+    ls -l /usr/bin/javac  || true
+    ls -l /etc/alternatives/javac  || true
+    ls -lL /etc/alternatives/javac  || true
+    javac -version || true
 
     pkg_ver=2.2.0.30
     pkg_commit=5b88c95e4f8d19b95713e3c873c7d07e48e5605b
 
     rm -rf "$YB_BUILDDIR"
-    mkdir -p "$YB_BUILDDIR"
+
     mkdir -p "$DESTDIR$PREFIX/bin"
     mkdir -p "$DESTDIR$PREFIX/lib"
     mkdir -p "$DESTDIR$PREFIX/include"
 
+    yb_download https://github.com/OpenNI/OpenNI2.git $pkg_commit OpenNI2-$pkg_ver
     cd "$YB_BUILDDIR"
-    git clone https://github.com/OpenNI/OpenNI2.git OpenNI2-$pkg_ver
     DIRNAME=`ls`; cd $DIRNAME
-    git reset --hard $pkg_commit
+
     yb_patch openni2
 
     # This should be a patch, but then we wouldn't be able to set prefix at runtime

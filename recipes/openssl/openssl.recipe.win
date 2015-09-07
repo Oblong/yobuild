@@ -1,0 +1,37 @@
+. yb_settings
+set -e
+set -x
+
+yb_vcvars32
+
+rm -rf ${YB_BUILDDIR}
+mkdir -p ${YB_BUILDDIR}
+mkdir -p "$DESTDIR$PREFIX/bin"
+mkdir -p "$DESTDIR$PREFIX/lib"
+mkdir -p "$DESTDIR$PREFIX/include"
+
+yb_download http://www.openssl.org/source/openssl-1.0.1i.tar.gz 3c179f46ca77069a6a0bac70212a9b3b838b2f66129cb52d568837fc79d8fcc7
+cd ${YB_BUILDDIR}/openssl-1.0.1i
+
+# Recipe from
+# 3c179f46ca77069a6a0bac70212a9b3b838b2f66129cb52d568837fc79d8fcc7
+
+# Find ActiveState Perl
+PATH=/cygdrive/c/Perl/bin:/cygdrive/c/Perl64/bin:$PATH
+case `which perl` in
+/cygdrive/c/Perl*) ;;
+*) echo "Warning: this recipe works best with native perl";;
+esac
+
+perl Configure VC-WIN32 --prefix="$PREFIXW"
+cmd /c ms\\do_ms.bat
+nmake -f ms\\ntdll.mak
+
+# The dlls have embedded paths, and the Makefile doesn't support DESTDIR, so rip it a new one
+
+# Double the backslashes (yes, sed needs seven backslashes) so the later sed works
+DESTDIRPREFIXW="`cygpath -w $DESTDIR$PREFIX | sed 's/\\\/\\\\\\\/g'`"
+sed "s,INSTALLTOP=.*,INSTALLTOP=$DESTDIRPREFIXW,;s,OPENSSLDIR=.*,OPENSSLDIR=$DESTDIRPREFIXW\\\ssl," < ms/ntdll.mak > ntdll-tmp.mak
+nmake -f ntdll-tmp.mak install
+
+yb_package openssl

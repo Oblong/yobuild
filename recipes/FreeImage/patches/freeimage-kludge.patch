@@ -1,0 +1,102 @@
+--- FreeImage/Makefile.osx.old	2015-03-08 18:04:16.000000000 -0700
++++ FreeImage/Makefile.osx	2015-06-10 15:46:46.000000000 -0700
+@@ -5,30 +5,32 @@
+ include Makefile.srcs
+ 
+ # General configuration variables:
+-CC_PPC = gcc-4.0
+-CC_I386 = gcc-4.0
+-CC_X86_64 = gcc-4.0
+-CPP_PPC = g++-4.0
+-CPP_I386 = g++-4.0
+-CPP_X86_64 = g++-4.0
++CC_PPC = gcc
++CC_I386 = gcc
++CC_X86_64 = gcc
++CPP_PPC = g++
++CPP_I386 = g++
++CPP_X86_64 = g++
+ COMPILERFLAGS = -Os -fexceptions -fvisibility=hidden -DNO_LCMS
++# Work around build problems
++COMPILERFLAGS += -D__ANSI__ -DDISABLE_PERF_MEASUREMENT -Wl,-headerpad_max_install_names
+ COMPILERFLAGS_PPC = -arch ppc
+ COMPILERFLAGS_I386 = -arch i386
+ COMPILERFLAGS_X86_64 = -arch x86_64
+ COMPILERPPFLAGS = -Wno-ctor-dtor-privacy
+ INCLUDE += 
+-INCLUDE_PPC = -isysroot /Developer/SDKs/MacOSX10.5.sdk
+-INCLUDE_I386 = -isysroot /Developer/SDKs/MacOSX10.5.sdk
+-INCLUDE_X86_64 = -isysroot /Developer/SDKs/MacOSX10.6.sdk
++#INCLUDE_PPC = -isysroot /Developer/SDKs/MacOSX10.5.sdk
++#INCLUDE_I386 = -isysroot /Developer/SDKs/MacOSX10.5.sdk
++#INCLUDE_X86_64 = -isysroot /Developer/SDKs/MacOSX10.6.sdk
+ CFLAGS_PPC = $(COMPILERFLAGS) $(COMPILERFLAGS_PPC) $(INCLUDE) $(INCLUDE_PPC)
+ CFLAGS_I386 = $(COMPILERFLAGS) $(COMPILERFLAGS_I386) $(INCLUDE) $(INCLUDE_I386)
+ CFLAGS_X86_64 = $(COMPILERFLAGS) $(COMPILERFLAGS_X86_64) $(INCLUDE) $(INCLUDE_X86_64)
+ CPPFLAGS_PPC = $(COMPILERPPFLAGS) $(CFLAGS_PPC)
+ CPPFLAGS_I386 = $(COMPILERPPFLAGS) $(CFLAGS_I386)
+ CPPFLAGS_X86_64 = $(COMPILERPPFLAGS) $(CFLAGS_X86_64)
+-LIBRARIES_PPC = -Wl,-syslibroot /Developer/SDKs/MacOSX10.5.sdk
+-LIBRARIES_I386 = -Wl,-syslibroot /Developer/SDKs/MacOSX10.5.sdk
+-LIBRARIES_X86_64 = -Wl,-syslibroot /Developer/SDKs/MacOSX10.6.sdk
++#LIBRARIES_PPC = -Wl,-syslibroot /Developer/SDKs/MacOSX10.5.sdk
++#LIBRARIES_I386 = -Wl,-syslibroot /Developer/SDKs/MacOSX10.5.sdk
++#LIBRARIES_X86_64 = -Wl,-syslibroot /Developer/SDKs/MacOSX10.6.sdk
+ LIBTOOL = libtool
+ LIPO = lipo
+ 
+@@ -47,8 +49,8 @@
+ MODULES_X86_64 := $(MODULES_X86_64:.cpp=.o-x86_64)
+ 
+ PREFIX = /usr/local
+-INSTALLDIR = $(PREFIX)/lib
+-INCDIR = $(PREFIX)/include
++INSTALLDIR = $(DESTDIR)$(PREFIX)/lib
++INCDIR = $(DESTDIR)$(PREFIX)/include
+ 
+ default: all
+ 
+@@ -62,8 +64,11 @@
+ 
+ FreeImage: $(STATICLIB) $(SHAREDLIB)
+ 
+-$(STATICLIB): $(STATICLIB)-ppc $(STATICLIB)-i386 $(STATICLIB)-x86_64
+-	$(LIPO) -create $(STATICLIB)-ppc $(STATICLIB)-i386 $(STATICLIB)-x86_64 -output $(STATICLIB)
++#STATICLIBS = $(STATICLIB)-ppc $(STATICLIB)-i386 $(STATICLIB)-x86_64
++STATICLIBS = $(STATICLIB)-x86_64
++
++$(STATICLIB): $(STATICLIBS)
++	$(LIPO) -create $(STATICLIBS) -output $(STATICLIB)
+ 
+ $(STATICLIB)-ppc: $(MODULES_PPC)
+ 	$(LIBTOOL) -arch_only ppc -o $@ $(MODULES_PPC)
+@@ -74,8 +79,10 @@
+ $(STATICLIB)-x86_64: $(MODULES_X86_64)
+ 	$(LIBTOOL) -arch_only x86_64 -o $@ $(MODULES_X86_64)
+ 
+-$(SHAREDLIB): $(SHAREDLIB)-ppc $(SHAREDLIB)-i386 $(SHAREDLIB)-x86_64
+-	$(LIPO) -create $(SHAREDLIB)-ppc $(SHAREDLIB)-i386 $(SHAREDLIB)-x86_64 -output $(SHAREDLIB)
++#SHAREDLIBS = $(SHAREDLIB)-ppc $(SHAREDLIB)-i386 $(SHAREDLIB)-x86_64
++SHAREDLIBS = $(SHAREDLIB)-x86_64
++$(SHAREDLIB): $(SHAREDLIBS)
++	$(LIPO) -create $(SHAREDLIBS) -output $(SHAREDLIB)
+ 
+ $(SHAREDLIB)-ppc: $(MODULES_PPC)
+ 	$(CPP_PPC) -arch ppc -dynamiclib $(LIBRARIES_PPC) -o $@ $(MODULES_PPC)
+@@ -105,11 +112,11 @@
+ 	$(CPP_X86_64) $(CPPFLAGS_X86_64) -c $< -o $@
+ 
+ install:
+-	install -d -m 755 -o root -g wheel $(INCDIR) $(INSTALLDIR)
+-	install -m 644 -o root -g wheel $(HEADER) $(INCDIR)
+-	install -m 644 -o root -g wheel $(SHAREDLIB) $(STATICLIB) $(INSTALLDIR)
+-	ranlib -sf $(INSTALLDIR)/$(STATICLIB)
+-	ln -sf $(SHAREDLIB) $(INSTALLDIR)/$(LIBNAME)
++	$(FAKEROOT) install -d -m 755 -o root -g wheel $(INCDIR) $(INSTALLDIR)
++	$(FAKEROOT) install -m 644 -o root -g wheel $(HEADER) $(INCDIR)
++	$(FAKEROOT) install -m 644 -o root -g wheel $(SHAREDLIB) $(STATICLIB) $(INSTALLDIR)
++	$(FAKEROOT) ranlib -sf $(INSTALLDIR)/$(STATICLIB)
++	$(FAKEROOT) ln -sf $(SHAREDLIB) $(INSTALLDIR)/$(LIBNAME)
+ 
+ clean:
+ 	rm -f core Dist/*.* u2dtmp* $(MODULES_PPC) $(MODULES_I386) $(MODULES_X86_64) $(STATICLIB) $(STATICLIB)-ppc $(STATICLIB)-i386 $(SHAREDLIB) $(SHAREDLIB)-ppc $(SHAREDLIB)-i386 $(SHAREDLIB)-x86_64

@@ -38,26 +38,28 @@ fi
 
 # Known good build order
 # FIXME: add dependency solver
+# WARNING: name may need to match directory name created by unpacking downloaded source,
+# including upper/lower case, or upload may fail.  FIXME: clarify this
 pkgs="
 file
 gmsl
-libsigsegv
-libtool
 m4
 gawk
 flex
+bison
 pkgconf
 autoconf
 automake
+libtool
+libsigsegv
 libxml2
 yaml
 yasm
 xz
-libicu48
+libicu53
 boost
 snappy
 faac
-faad2
 freetype
 fontconfig
 gettext
@@ -81,6 +83,7 @@ libvpx
 jasper
 ImageMagick
 GraphicsMagick
+FreeImage
 libusb
 libdc1394
 srtp

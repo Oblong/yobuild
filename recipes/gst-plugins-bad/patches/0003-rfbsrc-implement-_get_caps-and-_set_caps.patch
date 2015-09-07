@@ -1,0 +1,141 @@
+From efad7396015bbcf140bab713d3d4b6b56b9c8e9b Mon Sep 17 00:00:00 2001
+From: blake tregre <blake@oblong.com>
+Date: Thu, 30 Oct 2014 19:06:37 -0700
+Subject: [PATCH] rfbsrc: implement _get_caps and _set_caps
+
+---
+ gst/librfb/gstrfbsrc.c  |   44 +++++++++++++++++++++++++++++++++++++-------
+ gst/librfb/rfbdecoder.c |    5 +++++
+ gst/librfb/rfbdecoder.h |    4 ++++
+ 3 files changed, 46 insertions(+), 7 deletions(-)
+
+diff --git a/gst/librfb/gstrfbsrc.c b/gst/librfb/gstrfbsrc.c
+index cec4077..08cd3b8 100644
+--- a/gst/librfb/gstrfbsrc.c
++++ b/gst/librfb/gstrfbsrc.c
+@@ -72,6 +72,8 @@ static void gst_rfb_src_set_property (GObject * object, guint prop_id,
+ static void gst_rfb_src_get_property (GObject * object, guint prop_id,
+     GValue * value, GParamSpec * pspec);
+ 
++static GstCaps *gst_rfb_src_get_caps (GstBaseSrc * bsrc, GstCaps * caps);
++static gboolean gst_rfb_src_set_caps (GstBaseSrc * bsrc, GstCaps * caps);
+ static GstCaps *gst_rfb_src_fixate (GstBaseSrc * bsrc, GstCaps * caps);
+ static gboolean gst_rfb_src_start (GstBaseSrc * bsrc);
+ static gboolean gst_rfb_src_stop (GstBaseSrc * bsrc);
+@@ -151,6 +153,8 @@ gst_rfb_src_class_init (GstRfbSrcClass * klass)
+   gstbasesrc_class->stop = GST_DEBUG_FUNCPTR (gst_rfb_src_stop);
+   gstbasesrc_class->event = GST_DEBUG_FUNCPTR (gst_rfb_src_event);
+   gstpushsrc_class->create = GST_DEBUG_FUNCPTR (gst_rfb_src_create);
++  gstbasesrc_class->set_caps = GST_DEBUG_FUNCPTR (gst_rfb_src_set_caps);
++  gstbasesrc_class->get_caps = GST_DEBUG_FUNCPTR (gst_rfb_src_get_caps);
+ 
+   gstelement_class = GST_ELEMENT_CLASS (klass);
+ 
+@@ -349,9 +353,6 @@ gst_rfb_src_fixate (GstBaseSrc * bsrc, GstCaps * caps)
+   guint i;
+ 
+   decoder = src->decoder;
+-
+-  GST_DEBUG_OBJECT (src, "fixating caps %" GST_PTR_FORMAT, caps);
+-
+   caps = gst_caps_make_writable (caps);
+ 
+   for (i = 0; i < gst_caps_get_size (caps); ++i) {
+@@ -501,16 +502,45 @@ gst_rfb_src_start (GstBaseSrc * bsrc)
+       decoder->rect_height);
+ 
+   caps = gst_video_info_to_caps (&vinfo);
+-
+-  gst_pad_set_caps (GST_BASE_SRC_PAD (bsrc), caps);
++  decoder->caps = caps;
+ 
+   gst_rfb_negotiate_pool (src, caps);
+ 
+-  gst_caps_unref (caps);
+-
+   return TRUE;
+ }
+ 
++static GstCaps *
++gst_rfb_src_get_caps (GstBaseSrc * bsrc, GstCaps * filter)
++{
++  GstRfbSrc *src = GST_RFB_SRC (bsrc);
++  RfbDecoder *decoder = src->decoder;
++  GstCaps *ret;
++
++  if (!decoder->inited)
++    return gst_pad_get_pad_template_caps (GST_BASE_SRC_PAD (src));
++
++  if (filter) {
++    ret = gst_caps_intersect_full (filter, decoder->caps,
++        GST_CAPS_INTERSECT_FIRST);
++  } else {
++    ret = gst_caps_ref (decoder->caps);
++  }
++
++  return ret;
++}
++
++static gboolean
++gst_rfb_src_set_caps (GstBaseSrc * bsrc, GstCaps * caps)
++{
++  GstRfbSrc *src = GST_RFB_SRC (bsrc);
++  RfbDecoder *decoder = src->decoder;
++
++  if (decoder->caps)
++    return gst_caps_is_equal (decoder->caps, caps);
++
++  return FALSE;
++}
++
+ static gboolean
+ gst_rfb_src_stop (GstBaseSrc * bsrc)
+ {
+diff --git a/gst/librfb/rfbdecoder.c b/gst/librfb/rfbdecoder.c
+index de762ed..36d80a3 100644
+--- a/gst/librfb/rfbdecoder.c
++++ b/gst/librfb/rfbdecoder.c
+@@ -68,6 +68,8 @@ rfb_decoder_new (void)
+   decoder->data_len = 0;
+   decoder->error = NULL;
+ 
++  decoder->caps = NULL;
++
+   return decoder;
+ }
+ 
+@@ -92,6 +94,9 @@ rfb_decoder_free (RfbDecoder * decoder)
+   if (decoder->data)
+     g_free (decoder->data);
+ 
++  if (decoder->caps)
++    gst_caps_unref (decoder->caps);
++
+   g_free (decoder);
+ }
+ 
+diff --git a/gst/librfb/rfbdecoder.h b/gst/librfb/rfbdecoder.h
+index 00a8520..97dba6d 100644
+--- a/gst/librfb/rfbdecoder.h
++++ b/gst/librfb/rfbdecoder.h
+@@ -5,6 +5,8 @@
+ 
+ #include <glib.h>
+ 
++#include <gst/gstcaps.h>
++
+ G_BEGIN_DECLS
+ 
+ enum
+@@ -80,6 +82,8 @@ struct _RfbDecoder
+   guint green_shift;
+   guint blue_shift;
+ 
++  GstCaps *caps;
++
+   gchar *name;
+ 
+   /* information if we don't want to update the whole screen */
+-- 
+1.7.9.5
+

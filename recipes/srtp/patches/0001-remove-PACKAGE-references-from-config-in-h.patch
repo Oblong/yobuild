@@ -1,0 +1,27 @@
+--- a/config_in.h	2014-03-19 16:23:03.376100206 -0700
++++ b/config_in.h	2014-03-19 16:23:15.560100547 -0700
+@@ -126,24 +126,6 @@
+ /* Define this to use OpenSSL crypto. */
+ #undef OPENSSL
+ 
+-/* Define to the address where bug reports for this package should be sent. */
+-#undef PACKAGE_BUGREPORT
+-
+-/* Define to the full name of this package. */
+-#undef PACKAGE_NAME
+-
+-/* Define to the full name and version of this package. */
+-#undef PACKAGE_STRING
+-
+-/* Define to the one symbol short name of this package. */
+-#undef PACKAGE_TARNAME
+-
+-/* Define to the home page for this package. */
+-#undef PACKAGE_URL
+-
+-/* Define to the version of this package. */
+-#undef PACKAGE_VERSION
+-
+ /* The size of `unsigned long', as computed by sizeof. */
+ #undef SIZEOF_UNSIGNED_LONG
+ 
