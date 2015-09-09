@@ -1,0 +1,23 @@
+# See also https://bugs.debian.org/cgi-bin/bugreport.cgi?bug=777976
+--- libvpx-v1.3.0/nestegg/halloc/src/align.h.old	2015-09-08 02:01:19.049736733 +0000
++++ libvpx-v1.3.0/nestegg/halloc/src/align.h	2015-09-08 02:01:40.017640635 +0000
+@@ -30,7 +30,7 @@
+ 	void (*q)(void);
+ };
+ 
+-typedef union max_align max_align_t;
++typedef union max_align my_max_align_t;
+ 
+ #endif
+ 
+--- libvpx-v1.3.0/nestegg/halloc/src/halloc.c.old	2015-09-08 02:01:23.781715201 +0000
++++ libvpx-v1.3.0/nestegg/halloc/src/halloc.c	2015-09-08 02:01:44.545619655 +0000
+@@ -30,7 +30,7 @@
+ #endif
+ 	hlist_item_t  siblings; /* 2 pointers */
+ 	hlist_head_t  children; /* 1 pointer  */
+-	max_align_t   data[1];  /* not allocated, see below */
++	my_max_align_t   data[1];  /* not allocated, see below */
+ 	
+ } hblock_t;
+ 

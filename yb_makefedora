@@ -1,0 +1,112 @@
+#!/bin/sh
+# Copyright (c) 2015 Oblong Industries
+# License: MIT
+#
+
+set -e
+set -x
+
+#--------------- Default Values ----------------------------
+
+. yb_settings
+
+YB_PKGNAME_PREFIX=${YB_PKGNAME_PREFIX:-yobuilt}
+
+# FIXME: migrate this into yb_settings
+SRCDIR=`dirname "$0"`
+SRCDIR=`cd "$SRCDIR"; /bin/pwd`
+
+if test -d "$SRCDIR"/recipes
+then
+    RECIPES="$SRCDIR"/recipes
+else
+    RECIPES=/usr/share/yobuild/recipes
+fi
+
+#--------------- Functions ----------------------------
+
+usage() {
+    cat << _EOF_
+Usage: yb_makefedora pkg ...
+For each given package, builds it for Fedora, i.e.
+  - install anything missing from recipes/\$pkg/sysdeps.fedora
+  - run yb_buildone \$pkg
+  - convert the resulting binary tarball to a .rpm
+_EOF_
+}
+
+install_fpm()
+{
+    if ! test -x /usr/bin/fpm && ! test -x /usr/local/bin/fpm
+    then
+        for dep in ruby ruby-devel
+        do
+            if ! dnf list installed $dep
+            then
+                if ! sudo dnf -y install $dep
+                then
+                    echo "Failed to install dependency $dep"
+                    exit 1
+                fi
+            fi
+        done
+        sudo gem install fpm
+    fi
+}
+
+install_deps_for_pkg()
+{
+    install_fpm
+    if test -f "$RECIPES"/$1/sysdeps.fedora
+    then
+        for dep in `cat "$RECIPES"/$1/sysdeps.fedora`
+        do
+            if ! dnf list installed $dep
+            then
+                if ! sudo dnf -y install $dep
+                then
+                    echo "Failed to install dependency $dep"
+                    exit 1
+                fi
+            fi
+        done
+    fi
+}
+
+#--------------- Main ----------------------------
+
+if test $# -ne 1
+then
+    usage
+    exit 1
+fi
+
+for pkg
+do
+    # Install build dependencies, if needed
+    install_deps_for_pkg $pkg
+
+    yb_buildone $pkg
+
+    # Ugh.  Work even if uppercased (like for OpenNI2).
+    # And if version number starts with a v (like it does for libvpx).
+    # Or has three parts (e.g. x264-snapshot-20140604-2245-stable_64.tar.gz )
+    case $pkg in
+    x264)
+        # KLUDGE
+        real_pkg=x264
+        pkg_ver=`ls outdir/${real_pkg}* | sed 's,outdir/,,;s/_.*//;s/-snapshot-//;'`
+        ;;
+    *)
+        real_pkg=`find outdir -iname "${pkg}*" -print | sed -r 's,outdir/,,;s,_.*,,;s/\.tar.gz//;s/-v?[0-9.]+(-g[a-f0-9]+)?//'`
+        pkg_ver=`ls outdir/${real_pkg}* | sed 's,outdir/,,;s/_.*//;s/\.tar.gz//'`
+        ;;
+    esac
+    case "$pkg_ver" in
+    "") echo "BUG: pkg_ver empty"; exit 1;;
+    esac
+    ver=`echo ${pkg_ver} | sed -r "s/${real_pkg}-v?//"`
+    fpm -t rpm -s tar -v ${ver} -n ${YB_PKGNAME_PREFIX}-${pkg} \
+        --exclude '*/share/info/dir' \
+        outdir/${real_pkg}*.tar.gz
+done

@@ -5,6 +5,9 @@ set -x
 rm -rf $YB_BUILDDIR
 mkdir -p $YB_BUILDDIR
 
+# Needs cmake and doxygen, so point to ours in case system's is missing
+PATH=$PREFIX/bin:$PATH
+
 is_mac() {
     test -d "$HOME/Library/Caches"
 }

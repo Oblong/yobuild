@@ -28,7 +28,11 @@ YB_WIDTH=${YB_WIDTH:-64}
 #--------------- Helper Functions ----------------------------
 
 is_ubuntu() {
-    test -f /etc/issue
+    test -f /etc/apt/sources.list
+}
+
+is_fedora() {
+    test -f /etc/redhat-release
 }
 
 is_mac() {
@@ -92,6 +96,11 @@ set_cflags() {
         export CFLAGS="-O3 -g -isystem $PREFIX/include $YB_EXTRA_CFLAGS"
         export CXXFLAGS="-O3 -g -isystem $PREFIX/include $YB_EXTRA_CXXFLAGS"
         export LDFLAGS="-L$PREFIX/lib -Wl,-rpath,$PREFIX/lib"
+    elif is_fedora
+    then
+        export CFLAGS="-O3 -g -isystem $PREFIX/include $YB_EXTRA_CFLAGS"
+        export CXXFLAGS="-O3 -g -isystem $PREFIX/include $YB_EXTRA_CXXFLAGS"
+        export LDFLAGS="-L$PREFIX/lib -Wl,-rpath,$PREFIX/lib -L$PREFIX/lib64 -Wl,-rpath,$PREFIX/lib64"
     else
         set_cflags_mac $1
     fi
@@ -217,7 +226,15 @@ fi
 
 # Refer explicitly to system pkgconfig(s), as our special pkgconfig doesn't default to it
 # FIXME: don't hardcode the architecture
-export PKG_CONFIG_PATH="$PREFIX/lib/pkgconfig:${PKG_CONFIG_PATH}:/usr/lib/pkgconfig:/usr/lib/x86_64-linux-gnu/pkgconfig"
+for d in lib/x86_64-linux-gnu lib64
+do
+    if test -d /usr/"$d"
+    then
+        echo "OMG this system has ${d}.  Adding that to PKG_CONFIG_PATH."
+        export PKG_CONFIG_PATH="${PREFIX}/${d}/pkgconfig:/usr/${d}/pkgconfig:${PKG_CONFIG_PATH}"
+    fi
+done
+export PKG_CONFIG_PATH="$PREFIX/lib/pkgconfig:/usr/lib/pkgconfig:${PKG_CONFIG_PATH}"
 export PATH="$PREFIX/bin:$PATH"
 
 usage() {

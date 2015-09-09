@@ -1,3 +1,9 @@
+. yb_settings
+
+# Need yasm
+PATH=$PREFIX/bin:$PATH
+which yasm
+
 # Without -fPIC, building gstreamer plugins fails.
 export YB_CONFIGURE_ARGS="--enable-pic"
 export YB_CONFIGURE_ARGS32="--target=x86-darwin10-gcc"

@@ -20,7 +20,7 @@ YB_OUTDIR=${YB_OUTDIR:-../outdir}
 #--------------- Functions ----------------------------
 
 is_ubuntu() {
-    test -f /etc/issue
+    test -f /etc/apt/sources.list
 }
 
 is_win() {

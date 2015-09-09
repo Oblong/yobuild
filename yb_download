@@ -105,7 +105,13 @@ do_download() {
         bs_abort bug
     fi
 
-    sum=`shasum -a 256 "$YB_DOWNLOADS/$file" | awk '{print $1}'`
+    SHA256SUM="shasum -a 256"
+    if test -x /usr/bin/sha256sum
+    then
+        # Fedora ships sha256sum but not shasum
+        SHA256SUM="sha256sum"
+    fi
+    sum=`$SHA256SUM "$YB_DOWNLOADS/$file" | awk '{print $1}'`
     if test "$sha256" && test "$sum" != "$sha256"
     then
         bs_abort "Expected sha256 $sha256, got $sum"

@@ -1,5 +1,8 @@
 . yb_settings
 
+# Needs cmake, so point to ours in case system's is missing
+PATH=$PREFIX/bin:$PATH
+
 is_mac() {
     test -f /usr/bin/sw_vers
 }
